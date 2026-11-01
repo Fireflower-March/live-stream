@@ -33,7 +33,46 @@ def ensure_server():
             if 'AVATAR PRINT STUDIO' not in response.read(100000).decode('utf-8', errors='replace'):
                 raise RuntimeError('8080 端口被其他程序占用')
         return url, None
-    server = ThreadingHTTPServer(('127.0.0.1', 8080), partial(SimpleHTTPRequestHandler, directory=str(ROOT)))
+    class Handler(SimpleHTTPRequestHandler):
+        # 叠加一个本地控制端点：让浏览器页面也能拉起“独立应用窗口”（无浏览器界面）。
+        def do_GET(self):
+            if self.path.startswith('/__open-scene'):
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                spath = (q.get('path') or [''])[0]
+                orient = (q.get('orient') or ['landscape'])[0]
+                sizes = {'landscape': (1280, 720), 'landscape-1080p': (1920, 1080),
+                         'portrait': (720, 1280), 'portrait-1080p': (1080, 1920)}
+                w, h = sizes.get(orient, (1280, 720))
+                size = f'{w},{h}'
+                if not re.fullmatch(r'/[A-Za-z0-9_\-]+\.html\?scene=1', spath):
+                    return self._json(400, '{"ok":false,"error":"bad path"}')
+                exe = None
+                for c in (r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+                          r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+                          r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+                          r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'):
+                    if os.path.exists(c):
+                        exe = c
+                        break
+                if not exe:
+                    return self._json(500, '{"ok":false,"error":"no browser found"}')
+                subprocess.Popen([exe, '--app=http://127.0.0.1:8080' + spath, '--window-size=' + size])
+                return self._json(200, '{"ok":true}')
+            return super().do_GET()
+
+        def _json(self, code, body):
+            data = body.encode('utf-8')
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(('127.0.0.1', 8080), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return url, server
 
@@ -45,25 +84,43 @@ class DesktopApi:
         self._scene_windows = []
         self._lock = threading.RLock()
 
-    def open_scene_window(self, raw=None):
-        # 独立场景窗口：纯 3D 打印画面，适合 OBS 窗口采集/第二屏幕。接受语言页路径（/index.html 或 /index-en.html）。
+    def open_scene_window(self, path=None, orient='landscape'):
+        # 独立场景窗口：纯 3D 打印画面，适合 OBS 窗口采集/第二屏幕。接受语言页路径与画面方向。
         import webview, re as _re
-        path = str(raw or '')
+        path = str(path or '')
         if not _re.fullmatch(r'/[A-Za-z0-9_\-]+\.html\?scene=1', path):
             path = '/index.html?scene=1'
         url = 'http://127.0.0.1:8080' + path
+        sizes = {'landscape': (1280, 720), 'landscape-1080p': (1920, 1080),
+                 'portrait': (720, 1280), 'portrait-1080p': (1080, 1920)}
+        size = sizes.get(orient, (1280, 720))
 
         def spawn():
             try:
                 win = webview.create_window('Scene Window · Avatar Printer',
                                             url,
-                                            width=1280, height=720, background_color='#0b0e14')
+                                            width=size[0], height=size[1], background_color='#0b0e14',
+                                            js_api=self, resizable=True)
                 self._scene_windows.append(win)
             except Exception as exc:
                 print('scene window error:', exc, flush=True)
 
         threading.Thread(target=spawn, daemon=True).start()
         return '独立场景窗口已打开 / Scene window opened：打印由它接管，本窗口只计数。'
+
+    def resize_scene(self, w, h):
+        # 场景小窗内切换横竖屏：调整所有由本应用打开的场景窗口尺寸。
+        try:
+            w, h = max(200, min(int(w), 4096)), max(200, min(int(h), 4096))
+        except Exception:
+            return 'bad size'
+        for win in list(self._scene_windows):
+            try:
+                if not getattr(win, 'closed', False):
+                    win.resize(w, h)
+            except Exception:
+                pass
+        return 'ok'
 
     def open_live_room(self, raw):
         with self._lock:
