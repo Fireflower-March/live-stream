@@ -35,8 +35,80 @@ def ensure_server():
         return url, None
     class Handler(SimpleHTTPRequestHandler):
         # 叠加一个本地控制端点：让浏览器页面也能拉起“独立应用窗口”（无浏览器界面）。
+        def _guard(self):
+            # 只允许本机页面调用（防其它网站借用本地服务拉进程）。
+            if not self.headers.get('Host', '').startswith('127.0.0.1:8080'):
+                return False
+            return self.headers.get('Sec-Fetch-Site', '') == 'same-origin'
+
+        def _spawn_app(self, url, size=(1280, 720), extra=None):
+            exe = None
+            for c in (r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
+                      r'C:\Program Files\Microsoft\Edge\Application\msedge.exe',
+                      r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+                      r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe'):
+                if os.path.exists(c):
+                    exe = c
+                    break
+            if not exe:
+                return False
+            args = [exe, '--app=' + url, '--window-size=%d,%d' % size]
+            if extra:
+                args += extra
+            subprocess.Popen(args)
+            return True
+
         def do_GET(self):
+            if self.path.startswith('/__open-live'):
+                if not self._guard():
+                    return self._json(403, '{"ok":false,"error":"forbidden"}')
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                room = ''.join(ch for ch in (q.get('room') or [''])[0] if ch.isdigit())[-25:]
+                if not re.fullmatch(r'\d{5,25}', room):
+                    return self._json(400, '{"ok":false,"error":"bad room"}')
+                size = (720, 1280) if (q.get('portrait') or ['0'])[0] == '1' else (1280, 720)
+                extra = None
+                if (q.get('debug') or ['0'])[0] == '1':
+                    extra = ['--remote-debugging-port=9223', '--user-data-dir=' + str(ROOT / '.bridge-profile'),
+                             '--lang=zh-CN', '--no-first-run', '--no-default-browser-check',
+                             '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+                             '--disable-background-timer-throttling',
+                             '--disable-features=IntensiveWakeUpThrottling,CalculateNativeWinOcclusion']
+                if not self._spawn_app('https://live.douyin.com/' + room, size, extra):
+                    return self._json(500, '{"ok":false,"error":"no browser found"}')
+                return self._json(200, '{"ok":true}')
+            if self.path.startswith('/__start-bridge'):
+                if not self._guard():
+                    return self._json(403, '{"ok":false,"error":"forbidden"}')
+                from urllib.parse import urlparse, parse_qs
+                q = parse_qs(urlparse(self.path).query)
+                room = ''.join(ch for ch in (q.get('room') or [''])[0] if ch.isdigit())[-25:]
+                if not re.fullmatch(r'\d{5,25}', room):
+                    return self._json(400, '{"ok":false,"error":"bad room"}')
+                if listening(8765):
+                    return self._json(200, '{"ok":true,"already":true}')
+                node = shutil.which('node')
+                if not node:
+                    return self._json(500, '{"ok":false,"error":"node not found"}')
+                log = open(ROOT / 'desktop-bridge.log', 'ab')
+                subprocess.Popen([node, str(ROOT / 'douyin-bridge.mjs'), room], cwd=str(ROOT),
+                                 stdout=log, stderr=log,
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
+                return self._json(200, '{"ok":true}')
+            if self.path.startswith('/__stop-bridge'):
+                if not self._guard():
+                    return self._json(403, '{"ok":false,"error":"forbidden"}')
+                try:
+                    subprocess.run(['powershell', '-NoProfile', '-Command',
+                                    "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'douyin-bridge.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                                    timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+                except Exception:
+                    pass
+                return self._json(200, '{"ok":true}')
             if self.path.startswith('/__open-scene'):
+                if not self._guard():
+                    return self._json(403, '{"ok":false,"error":"forbidden"}')
                 from urllib.parse import urlparse, parse_qs
                 q = parse_qs(urlparse(self.path).query)
                 spath = (q.get('path') or [''])[0]

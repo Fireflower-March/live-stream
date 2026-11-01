@@ -320,16 +320,31 @@ async function openLiveRoomWindow(){
  if(!match){status.textContent='Enter a valid room ID or a live.douyin.com link';$('room-input').focus();return}
  const room=match[1];
  if(window.pywebview?.api){try{status.textContent=await window.pywebview.api.open_live_room(room)}catch(e){status.textContent='Open failed: '+e.message}return}
- const popup=window.open('https://live.douyin.com/'+room,'printerLiveRoom','popup=yes,width=1180,height=800,resizable=yes,scrollbars=yes');
- if(!popup){status.textContent='Popup blocked — allow popups and retry';return}
- try{popup.opener=null;popup.focus()}catch(e){}
  try{localStorage.setItem('printer-live-room',room)}catch(e){}
+ try{status.textContent='Opening the live window…';const j=await(await fetch('/__open-live?room='+room+'&debug=1')).json();status.textContent=j.ok?'Live window opened (app window). Log in there, then click Start Capture.':'Open failed: '+(j.error||'')}catch(e){status.textContent='Open failed: '+e.message}
  status.textContent='Live window requested — log in there. Logging in does not connect the bridge.';
 }
 $('room-open').onclick=openLiveRoomWindow;
 for(const [id,method] of [['capture-start','start_capture'],['capture-stop','stop_capture']])$(id).onclick=async()=>{
  const status=$('room-open-status');
- if(!window.pywebview?.api){status.textContent='Launch the desktop app (start.bat) to use the capture buttons';return}
+ if(!window.pywebview?.api){
+   const mr=($('room-input').value.match(/(\d{5,25})/)||[]);const room=mr?mr[1]:(String(liveRoom||'').match(/(\d{5,25})/)||[,''])[1];
+   $(id).disabled=true;
+   try{
+     if(method==='start_capture'){
+       if(!room){status.textContent='Enter a room ID above before starting capture';return}
+       status.textContent='Starting the bridge…';
+       const j=await(await fetch('/__start-bridge?room='+room)).json();
+       status.textContent=j.ok?(j.already?'Bridge already running — connecting…':'Bridge started, connecting to live chat…'):'Start failed: '+(j.error||'');
+       if(j.ok)connectBridge();
+     }else{
+       status.textContent='Stopping the bridge…';
+       const j=await(await fetch('/__stop-bridge')).json();
+       status.textContent=j.ok?'Capture stopped.':'Stop failed';
+     }
+   }catch(e){status.textContent='Action failed: '+e.message}finally{$(id).disabled=false}
+   return
+ }
  $(id).disabled=true;
  try{status.textContent=await window.pywebview.api[method]($('room-input').value);if(method==='start_capture')connectBridge()}catch(e){status.textContent='Action failed: '+e.message}finally{$(id).disabled=false}
 };

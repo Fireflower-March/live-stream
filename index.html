@@ -320,16 +320,31 @@ async function openLiveRoomWindow(){
  if(!match){status.textContent='请先输入有效的直播间号或 live.douyin.com 直播链接';$('room-input').focus();return}
  const room=match[1];
  if(window.pywebview?.api){try{status.textContent=await window.pywebview.api.open_live_room(room)}catch(e){status.textContent='打开失败：'+e.message}return}
- const popup=window.open('https://live.douyin.com/'+room,'printerLiveRoom','popup=yes,width=1180,height=800,resizable=yes,scrollbars=yes');
- if(!popup){status.textContent='窗口被浏览器拦截，请允许此页面弹出窗口后重试';return}
- try{popup.opener=null;popup.focus()}catch(e){}
  try{localStorage.setItem('printer-live-room',room)}catch(e){}
+ try{status.textContent='正在打开独立直播窗口…';const j=await(await fetch('/__open-live?room='+room+'&debug=1')).json();status.textContent=j.ok?'独立直播窗口已打开（应用窗口），请在其中登录后点「开始抓取」。':'打开失败：'+(j.error||'')}catch(e){status.textContent='打开失败：'+e.message}
  status.textContent='已请求打开直播间，请在新窗口登录。登录不会自动连接数据桥。';
 }
 $('room-open').onclick=openLiveRoomWindow;
 for(const [id,method] of [['capture-start','start_capture'],['capture-stop','stop_capture']])$(id).onclick=async()=>{
  const status=$('room-open-status');
- if(!window.pywebview?.api){status.textContent='请通过 start.bat 打开桌面版后使用抓取按钮';return}
+ if(!window.pywebview?.api){
+   const mr=($('room-input').value.match(/(\d{5,25})/)||[]);const room=mr?mr[1]:(String(liveRoom||'').match(/(\d{5,25})/)||[,''])[1];
+   $(id).disabled=true;
+   try{
+     if(method==='start_capture'){
+       if(!room){status.textContent='请先在上方填写直播间号，再开始抓取';return}
+       status.textContent='正在启动数据桥…';
+       const j=await(await fetch('/__start-bridge?room='+room)).json();
+       status.textContent=j.ok?(j.already?'数据桥已在运行，正在连接…':'数据桥已启动，正在连接直播评论…'):'启动失败：'+(j.error||'');
+       if(j.ok)connectBridge();
+     }else{
+       status.textContent='正在停止数据桥…';
+       const j=await(await fetch('/__stop-bridge')).json();
+       status.textContent=j.ok?'抓取已停止，可以继续在直播窗口观看。':'停止失败';
+     }
+   }catch(e){status.textContent='操作失败：'+e.message}finally{$(id).disabled=false}
+   return
+ }
  $(id).disabled=true;
  try{status.textContent=await window.pywebview.api[method]($('room-input').value);if(method==='start_capture')connectBridge()}catch(e){status.textContent='操作失败：'+e.message}finally{$(id).disabled=false}
 };
