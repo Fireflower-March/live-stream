@@ -1,7 +1,7 @@
 # 头像打印机
 
 <p align="center">
-  <a href="tel:17398730078"><img src="docs/ad-banner.svg" alt="承接程序开发 · 直播程序开发 · 电话 17398730078" width="100%"></a>
+  <img src="docs/ad-banner.svg" alt="承接程序开发 · 直播程序开发 · 微信号① xfak888888899999 · 微信号② 17398730078" width="100%"></a>
 </p>
 
 
