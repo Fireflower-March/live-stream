@@ -62,13 +62,18 @@ function controlFrame(opcode, payload = Buffer.alloc(0)) {
   return Buffer.concat([header, payload]);
 }
 
-export function startWSServer(port, { onMessage, onStatus, onError } = {}) {
+export function startWSServer(port, { onMessage, onStatus, onError, identity = null, fallbackPorts = 0 } = {}) {
   const clients = new Set();
   const server = http.createServer((req, res) => {
+    if (req.url === '/health') { res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify({service:'avatar-printer', identity, port:server.address().port})); return; }
     res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('avatar-printer data bridge running');
   });
-  server.on('error', err => { if (onError) onError(err); });
+  let activePort = port;
+  server.on('error', err => {
+    if (err.code === 'EADDRINUSE' && activePort < port + fallbackPorts) { server.listen(++activePort, '127.0.0.1'); return; }
+    if (onError) onError(err);
+  });
   server.on('upgrade', (req, sock) => {
     const key = req.headers['sec-websocket-key'];
     if (!key || String(req.headers.upgrade || '').toLowerCase() !== 'websocket') {
@@ -107,7 +112,8 @@ export function startWSServer(port, { onMessage, onStatus, onError } = {}) {
       try { c.sock.write(data) } catch { clients.delete(c) }
     }
   }
-  server.listen(port, () => { if (onStatus) onStatus(port) });
+  server.on('listening', () => { if (onStatus) onStatus(server.address().port) });
+  server.listen(port, '127.0.0.1');
   return {
     broadcast,
     clientCount: () => clients.size,

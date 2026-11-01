@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from functools import partial
 from scene_relay import SceneRelay
@@ -28,6 +29,29 @@ def listening(port):
         sock.settimeout(.3)
         return sock.connect_ex(('127.0.0.1', port)) == 0
 
+def bridge_status():
+    for port in range(8765, 8775):
+        try:
+            with urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=.15) as response:
+                data = json.load(response)
+            if data.get('service') == 'avatar-printer' and os.path.normcase(data.get('identity', '')) == os.path.normcase(str(ROOT)):
+                return dict(ok=True, port=port, url=f'ws://127.0.0.1:{port}')
+        except Exception:
+            pass
+    return dict(ok=False)
+
+
+def wait_bridge(process):
+    for _ in range(30):
+        if process.poll() is not None:
+            raise RuntimeError('数据桥启动失败，请查看 desktop-bridge.log')
+        status = bridge_status()
+        if status['ok']:
+            return status
+        time.sleep(.1)
+    raise RuntimeError('数据桥启动超时，请查看 desktop-bridge.log')
+
+
 def ensure_server():
     url = 'http://127.0.0.1:8080/'
     if listening(8080):
@@ -36,6 +60,7 @@ def ensure_server():
                 raise RuntimeError('8080 端口被其他程序占用')
         return url, None
     relay = SceneRelay()
+    bridge_process = None
     class Handler(SimpleHTTPRequestHandler):
         def end_headers(self):
             # Ctrl+R must load edited local pages and their scripts immediately.
@@ -82,6 +107,11 @@ def ensure_server():
                 return self._json(400, '{"error":"invalid message"}')
 
         def do_GET(self):
+            nonlocal bridge_process
+            if self.path == '/__bridge-status':
+                if not self._guard():
+                    return self._json(403, '{"ok":false}')
+                return self._json(200, json.dumps(bridge_status()))
             if self.path.startswith('/__scene-events?'):
                 if not self._guard():
                     return self._json(403, '{"error":"forbidden"}')
@@ -117,25 +147,27 @@ def ensure_server():
                 room = ''.join(ch for ch in (q.get('room') or [''])[0] if ch.isdigit())[-25:]
                 if not re.fullmatch(r'\d{5,25}', room):
                     return self._json(400, '{"ok":false,"error":"bad room"}')
-                if listening(8765):
+                if bridge_status()["ok"]:
                     return self._json(200, '{"ok":true,"already":true}')
                 node = shutil.which('node')
                 if not node:
                     return self._json(500, '{"ok":false,"error":"node not found"}')
                 log = open(ROOT / 'desktop-bridge.log', 'ab')
-                subprocess.Popen([node, str(ROOT / 'douyin-bridge.mjs'), room], cwd=str(ROOT),
+                (ROOT / '.bridge-room').write_text(room, encoding='utf-8')
+                bridge_process = subprocess.Popen([node, str(ROOT / 'douyin-bridge.mjs'), room], cwd=str(ROOT),
                                  stdout=log, stderr=log,
                                  creationflags=subprocess.CREATE_NO_WINDOW)
-                return self._json(200, '{"ok":true}')
+                try:
+                    return self._json(200, json.dumps(wait_bridge(bridge_process)))
+                except RuntimeError as exc:
+                    return self._json(500, json.dumps(dict(ok=False, error=str(exc))))
             if self.path.startswith('/__stop-bridge'):
                 if not self._guard():
                     return self._json(403, '{"ok":false,"error":"forbidden"}')
-                try:
-                    subprocess.run(['powershell', '-NoProfile', '-Command',
-                                    "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'douyin-bridge.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
-                                    timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
-                except Exception:
-                    pass
+                if bridge_process and bridge_process.poll() is None:
+                    bridge_process.terminate()
+                    bridge_process.wait(timeout=5)
+                bridge_process = None
                 return self._json(200, '{"ok":true}')
             if self.path.startswith('/__open-scene'):
                 if not self._guard():
@@ -292,7 +324,7 @@ class DesktopApi:
                 raise RuntimeError("请先打开该房间的直播窗口并登录 / Open this room's live window and log in first")
             if self._bridge and self._bridge.poll() is None:
                 return '数据桥已在运行 / Bridge already running.'
-            if listening(8765):
+            if bridge_status()["ok"]:
                 return '数据桥已在运行，自动跟随换房 / Bridge running — follows room switches automatically.'
             with urllib.request.urlopen('http://127.0.0.1:9224/json/list', timeout=3) as response:
                 pages = json.load(response)
@@ -306,7 +338,8 @@ class DesktopApi:
             with open(ROOT / 'desktop-bridge.log', 'ab') as log:
                 self._bridge = subprocess.Popen([node, str(ROOT / 'douyin-bridge.mjs'), room], cwd=ROOT,
                     env=env, stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
-            return '数据桥已启动，正在连接直播评论。'
+            status = wait_bridge(self._bridge)
+            return f'数据桥已启动，端口 {status["port"]}，正在连接直播评论。'
 
     def stop_capture(self, raw=None):
         with self._lock:
@@ -314,13 +347,6 @@ class DesktopApi:
                 self._bridge.terminate()
                 self._bridge.wait(timeout=5)
             self._bridge = None
-            # 也停掉手动 node douyin-bridge.mjs 启动的外部数据桥。
-            try:
-                subprocess.run(['powershell', '-NoProfile', '-Command',
-                                "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'douyin-bridge.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
-                                timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
-            except Exception:
-                pass
             return '抓取已停止 / Capture stopped.'
 
     def close(self):

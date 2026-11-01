@@ -101,6 +101,8 @@ function imageUrl(buf, depth = 0) {
 }
 
 // 头像 URL 特征：aweme 用户头像或 webcast 用户头像；勋章/等级/标签/礼物图一律不算。
+export function isExplicitAvatarUrl(u) { return /(aweme-avatar|tos-cn-avt|\/aweme\/100x100\/|sc=avatar)/i.test(String(u || '')); }
+
 export function isAvatarUrl(u) {
   const s = String(u || '');
   if (!s) return false;
@@ -182,7 +184,7 @@ function loadAvatarCache() {
   try {
     const data = JSON.parse(fs.readFileSync(AVATAR_CACHE_FILE, 'utf8'));
     for (const [n, a] of Object.entries(data.items || {})) {
-      if (typeof a !== 'string' || !/^https:\/\//.test(a) || isJunkName(n)) continue;
+      if (typeof a !== 'string' || !isExplicitAvatarUrl(a) || isJunkName(n)) continue;
       avatarCache.set(n, a);
       const k = normKey(n);
       if (k && !avatarCacheNorm.has(k)) avatarCacheNorm.set(k, a);
@@ -361,7 +363,7 @@ const COLLECT = String.raw`(() => {
     for (const img of document.querySelectorAll('img')) {
       const src = img.currentSrc || img.src || '';
       if (src.indexOf('douyinpic.com') < 0) continue;
-      if (!/(aweme-avatar|tos-cn-avt|\/aweme\/100x100\/)/.test(src) && !/img\/webcast\/[a-f0-9]{16,}\.(p|png|jpe?g|webp)/i.test(src)) continue;
+      if (!/(aweme-avatar|tos-cn-avt|sc=avatar)/i.test(src)) continue;
       if (/grade_level|badge|medal|icon|\.svg|ranklist/i.test(src)) continue;
       let n = img.parentElement, name = '';
       for (let i = 0; i < 5 && n && !name; i++) {
@@ -699,7 +701,7 @@ export async function resolveHoverBatch(names) {
             card = true;
             for (const img of e.querySelectorAll('img')) {
               const s = img.currentSrc || img.src || '';
-              if (/(aweme-avatar|tos-cn-avt|\\/aweme\\/100x100\\/)/.test(s) || /img\\/webcast\\/[a-f0-9]{16,}\\./i.test(s)) {
+              if (/(aweme-avatar|tos-cn-avt|sc=avatar)/i.test(s)) {
                 if (img.complete && img.naturalWidth > 0 && !/grade_level|badge|medal|icon|\\.svg/i.test(s)) return JSON.stringify({ card: true, avatar: s });
               }
             }
@@ -840,7 +842,7 @@ async function run(hub) {
       roster.set(ev.name, avatar);
       lastSeen.set(ev.name, Date.now());
       if (ev.kind !== 'comment') parsedNames.push(ev.name);
-      if (ev.kind === 'comment') {
+      if (ev.kind === 'comment' || ev.kind === 'gift') {
         // Preserve every comment, including repeated text; resolve its avatar before dispatch.
         commentResolution = commentResolution.then(async () => {
           if (room !== currentRoom) return;
@@ -855,10 +857,10 @@ async function run(hub) {
           if (!avatars[ev.name] && !(key && normMap.get(key)) && !avatar) await hoverResolveAvatars([ev.name]);
           if (room !== currentRoom) return;
           const resolved = avatars[ev.name] || (key && normMap.get(key)) || avatar;
-          emit({ type: 'comment', name: ev.name, text: ev.text, avatar: resolved || '' });
+          if (ev.kind === 'gift') emit({ type: 'gift', name: ev.name, gift: mapGift(ev.gift), raw: ev.gift, count: ev.count, avatar: resolved || '' });
+          else emit({ type: 'comment', name: ev.name, text: ev.text, avatar: resolved || '' });
         }).catch(err => console.error('评论头像补取失败：', err.message));
       }
-      else if (ev.kind === 'gift') emit({ type: 'gift', name: ev.name, gift: mapGift(ev.gift), raw: ev.gift, count: ev.count, avatar });
       else if (ev.kind === 'follow') emit({ type: 'follow', name: ev.name, avatar });
       else if (ev.kind === 'join' && Date.now() - lastWsJoinAt > 30000) emit({ type: 'join', name: ev.name, avatar });
     }
@@ -940,6 +942,7 @@ async function main() {
   }, 2000).unref?.();
   const wsPort = Number(process.argv[3]) || 8765;
   const hub = startWSServer(wsPort, {
+    identity: __dirname, fallbackPorts: process.argv[3] ? 0 : 9,
     onStatus: p => console.log('[' + stamp() + '] ✅ 数据桥服务 ws://127.0.0.1:' + p + '（等待打印页面接入）'),
     onError: err => {
       console.error('[' + stamp() + '] ❌ 端口 ' + wsPort + ' 启动失败（' + err.code + '），可能有另一个数据桥在运行，本实例退出');
