@@ -130,4 +130,4 @@ async function main() {
   process.exit(pass === results.length ? 0 : 1);
 }
 
-main().then(() => { }, e => { console.error('测试失败：', e.message); process.exit(1) }).finally(() => { try { browserProc && browserProc.kill() } catch { } });
+main().then(() => { }, e => { console.error('测试失败：', e.message); process.exit(1) }).finally(() => { try { browserProc && browserProc.kill() } catch { } try { fs.rmSync(path.join(ROOT, '.popup-test'), { recursive: true, force: true }) } catch { } });

@@ -27,3 +27,6 @@ live-acceptance.log
 *.zip
 
 .err-check/
+.popup-test/
+.diag-profile/
+popup-test-result.json
