@@ -100,24 +100,55 @@ function imageUrl(buf, depth = 0) {
   return '';
 }
 
-export function extractUser(buf, depth = 0) {
-  if (depth > 7) return null;
+// 头像 URL 特征：aweme 用户头像或 webcast 用户头像；勋章/等级/标签/礼物图一律不算。
+export function isAvatarUrl(u) {
+  const s = String(u || '');
+  if (!s) return false;
+  if (/(aweme-avatar|\/aweme\/100x100\/|sc=avatar)/i.test(s)) return true;
+  return /img\/webcast\/[a-f0-9]{16,}\./i.test(s) && !/(grade|badge|medal|icon|label|gift|effect|frame|banner)/i.test(s);
+}
+
+// 递归收集缓冲里所有"User 形状"的结构：#3 是昵称，#9/10/11/6 内嵌头像 URL。
+// 注意不能在消息体顶层找 #3——ChatMessage 的 #3 是弹幕文本，会张冠李戴。
+export function collectUsers(buf, depth = 0) {
+  const out = [];
+  if (depth > 8) return out;
   const fields = pbDecode(buf);
-  // User.nickname is field 3; Image.url_list is nested inside the avatar field.
   const nickname = fields.find(f => f.n === 3 && f.wire === 2)?.buf?.toString('utf8');
-  if (nickname && nickname.length <= 40 && !/[\x00-\x1f\ufffd]/.test(nickname)) {
+  if (nickname && nickname.length <= 40 && !/[\x00-\x1f\ufffd]/.test(nickname) && !/^https?:/.test(nickname)) {
     for (const n of [9, 10, 11, 6]) {
       const field = fields.find(f => f.n === n && f.wire === 2);
       const avatar = field?.buf && imageUrl(field.buf);
-      if (avatar) return { name: nickname, avatar };
+      if (avatar && isAvatarUrl(avatar)) { out.push({ name: nickname, avatar }); break; }
     }
   }
   for (const f of fields) {
-    if (f.wire !== 2 || !f.buf?.length) continue;
-    const user = extractUser(f.buf, depth + 1);
-    if (user) return user;
+    if (f.wire !== 2 || !f.buf?.length || f.buf.length < 16) continue;
+    out.push(...collectUsers(f.buf, depth + 1));
   }
-  return null;
+  return out;
+}
+
+export function extractUser(buf, depth = 0) {
+  return collectUsers(buf, depth)[0] || null;
+}
+
+// 从 gzip 解包后的 protobuf 里找出所有 {方法名, 消息体} 信封再回调。
+// 信封特征：#1 恰好是 "WebcastXxxMessage" 字符串、#2 是消息体。
+// 绝不能用"头部含 Webcast 字样"来匹配——每条消息体内部的 Common 结构也嵌着同名方法串，
+// 旧代码因此把真正的消息体也当方法串跳过，协议级解码从未命中过一条消息。
+function eachEnvelope(buf, cb, depth = 0) {
+  if (depth > 4) return;
+  for (const f of pbDecode(buf)) {
+    if (f.wire !== 2 || !f.buf || f.buf.length < 24) continue;
+    const sub = pbDecode(f.buf);
+    const method = sub.find(s => s.n === 1 && s.wire === 2)?.buf?.toString('utf8');
+    if (method && /^Webcast\w{1,30}Message$/.test(method)) {
+      const pl = sub.find(s => s.n === 2 && s.wire === 2 && s.buf && s.buf.length >= 12);
+      if (pl) { cb(method, pl.buf); continue; }
+    }
+    if (f.buf.length > 40) eachEnvelope(f.buf, cb, depth + 1);
+  }
 }
 
 function handleWSFrame(buf) {
@@ -125,39 +156,79 @@ function handleWSFrame(buf) {
     let payload = buf;
     const idx = buf.indexOf(Buffer.from([0x1f, 0x8b]));
     if (idx >= 0) { try { payload = zlib.gunzipSync(buf.subarray(idx)); } catch { return } }
-    for (const f of pbDecode(payload)) {
-      if (f.wire !== 2 || !f.buf || f.buf.length < 12) continue;
-      const head = f.buf.toString('utf8', 0, Math.min(48, f.buf.length));
-      const mt = head.match(/Webcast(Chat|Like|Member|Social|Gift)Message/);
-      if (!mt) continue;
-      const kind = mt[1];
-      let best = null;
-      for (const s of pbDecode(f.buf)) {
-        if (s.wire !== 2 || !s.buf || s.buf.length < 12) continue;
-        const t = s.buf.toString('utf8', 0, Math.min(40, s.buf.length));
-        if (/Webcast\w*Message/.test(t)) continue;
-        if (!best || s.buf.length > best.buf.length) best = s;
-      }
-      if (!best) continue;
-      const user = extractUser(best.buf);
-      if (!user || !user.name) continue;
-      feedAvatar(user.name, user.avatar);
-      const type = kind === 'Chat' ? null : kind === 'Like' ? 'like' : kind === 'Social' ? 'follow' : kind === 'Member' ? 'join' : null;
-      if (type === 'like') emitLike(user);
-      else if (type === 'follow') emitFollow(user);
-      else if (type === 'join') emitJoinWS(user);
-    }
+    eachEnvelope(payload, (method, pl) => {
+      const mt = method.match(/^Webcast(Chat|Like|Member|Social|Gift|RoomUserSeq)Message$/);
+      if (!mt) return;
+      // 消息体里每个 User 结构都自带头像，全部喂进花名册（RoomUserSeq 一次带多名活跃观众）。
+      const users = collectUsers(pl);
+      for (const u of users) feedAvatar(u.name, u.avatar, '协议帧');
+      const type = mt[1] === 'Like' ? 'like' : mt[1] === 'Social' ? 'follow' : mt[1] === 'Member' ? 'join' : null;
+      const actor = users[0];
+      if (!actor || !type) return;
+      if (type === 'like') emitLike(actor);
+      else if (type === 'follow') emitFollow(actor);
+      else if (type === 'join') emitJoinWS(actor);
+    });
   } catch { }
 }
 
 const normMap = new Map();
-function feedAvatar(name, avatar) {
+// 头像持久缓存：跨重启、跨房间复用已抓到的头像，回访观众零延迟命中。
+const AVATAR_CACHE_FILE = path.join(__dirname, 'avatar-cache.json');
+const AVATAR_CACHE_MAX = 3000;
+const avatarCache = new Map(), avatarCacheNorm = new Map();
+let cacheDirty = false;
+function loadAvatarCache() {
+  try {
+    const data = JSON.parse(fs.readFileSync(AVATAR_CACHE_FILE, 'utf8'));
+    for (const [n, a] of Object.entries(data.items || {})) {
+      if (typeof a !== 'string' || !/^https:\/\//.test(a) || isJunkName(n)) continue;
+      avatarCache.set(n, a);
+      const k = normKey(n);
+      if (k && !avatarCacheNorm.has(k)) avatarCacheNorm.set(k, a);
+    }
+    if (avatarCache.size) console.log('[' + stamp() + '] 📦 已载入历史头像缓存 %d 人（回访观众秒出头像）', avatarCache.size);
+  } catch { }
+}
+function saveAvatarCache() {
+  if (!cacheDirty) return;
+  cacheDirty = false;
+  try {
+    const items = {};
+    let i = 0;
+    for (const [n, a] of avatarCache) { items[n] = a; if (++i >= AVATAR_CACHE_MAX) break; }
+    const tmp = AVATAR_CACHE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ version: 1, savedAt: Date.now(), items }));
+    fs.renameSync(tmp, AVATAR_CACHE_FILE);
+  } catch { }
+}
+function feedAvatarCache(name, avatar) {
+  if (avatarCache.get(name) !== avatar) {
+    avatarCache.delete(name);
+    avatarCache.set(name, avatar);
+    cacheDirty = true;
+  }
+  const k = normKey(name);
+  if (k) { avatarCacheNorm.delete(k); avatarCacheNorm.set(k, avatar); }
+}
+// 事件现场按昵称查历史缓存；命中就顺势灌进本房间的 avatars，后续直接走内存。
+function lookupAvatar(name) {
+  const k = normKey(name);
+  const hit = avatarCache.get(name) || (k && avatarCacheNorm.get(k)) || '';
+  if (hit && !avatars[name]) avatars[name] = hit;
+  return hit || '';
+}
+function feedAvatar(name, avatar, via = '页面') {
   if (!name || !avatar || isJunkName(name)) return;
   const k = normKey(name);
   if (avatars[name] !== avatar) avatars[name] = avatar;
   if (k) normMap.set(k, avatar);
+  feedAvatarCache(name, avatar);
   if (roster.get(name) !== avatar) {
-    if (!roster.has(name)) likeState.used.clear();
+    if (!roster.has(name)) {
+      likeState.used.clear();
+      console.log('[' + stamp() + '] 🧑 首次入库 %s 的头像（%s）', name, via);
+    }
     roster.set(name, avatar);
     lastSeen.set(name, Date.now());
   }
@@ -176,7 +247,7 @@ function emitLike(user) {
   }
   total.like += allowed;
   lastEventAt = nowMs;
-  hub.broadcast({ type: 'like', name: user.name, avatar: user.avatar || '', count: allowed });
+  hubRef.broadcast({ type: 'like', name: user.name, avatar: user.avatar || '', count: allowed });
   console.log('[' + stamp() + '] ❤️ %s 点赞 +%d（协议级）', user.name, allowed);
 }
 
@@ -184,7 +255,7 @@ function emitFollow(user) {
   if (!user || !user.name) return;
   total.join++;
   lastEventAt = Date.now();
-  hub.broadcast({ type: 'follow', name: user.name, avatar: user.avatar || '' });
+  hubRef.broadcast({ type: 'follow', name: user.name, avatar: user.avatar || '' });
   console.log('[' + stamp() + '] ⭐ %s 关注了直播间 → 打印头像', user.name);
 }
 
@@ -193,7 +264,7 @@ function emitJoinWS(user) {
   lastWsJoinAt = Date.now();
   total.join++;
   lastEventAt = Date.now();
-  hub.broadcast({ type: 'join', name: user.name, avatar: user.avatar || '' });
+  hubRef.broadcast({ type: 'join', name: user.name, avatar: user.avatar || '' });
   console.log('[' + stamp() + '] 👋 %s 进入直播间（协议级）', user.name);
 }
 
@@ -433,19 +504,24 @@ function attachCDP(target) {
 }
 
 let currentRoom = '';
+let hubRef = null; // 模块级 hub 引用：emitLike/pollFollowers 等在 run() 外也要能广播（原先引用未定义的 hub 会抛错被吞）。
 let cdpRef = null;
 export function _injectCdpForTest(ref) { cdpRef = ref; }
-let lastLikes = null, clientCount = 0, chatSeen = false, owner = '';
+export function _handleWSFrameForTest(buf) { handleWSFrame(buf) }
+export function _injectHubForTest(h) { hubRef = h }
+export function _avatarStateForTest() { return { avatars: { ...avatars }, roster: [...roster.entries()], cache: [...avatarCache.entries()], normMap: [...normMap.entries()] } }
+let lastLikes = null, clientCount = 0, chatSeen = false, historySkipped = false, owner = '';
 const roster = new Map(), likeState = { idx: 0, used: new Map() }, lastSeen = new Map();
 const seen = new Set(), avatars = {};
 const total = { comment: 0, gift: 0, like: 0, join: 0 };
 let likeTokens = 20, likeTokensAt = Date.now(), lastThrottleLog = 0, lastEventAt = 0, lastNavFix = 0, lastWsLikeAt = 0, lastWsJoinAt = 0, cdpEventSink = null, lastFollowerCount = null, lastFollowerPoll = 0;
 
 function resetRoomState() {
-  lastLikes = null; chatSeen = false; owner = '';
+  lastLikes = null; chatSeen = false; historySkipped = false; owner = '';
   roster.clear(); lastSeen.clear(); seen.clear();
   for (const k of Object.keys(avatars)) delete avatars[k];
   likeState.used.clear(); likeState.idx = 0;
+  hoverTried.clear();
   total.comment = total.gift = total.like = total.join = 0;
 }
 
@@ -485,7 +561,7 @@ async function pollFollowers() {
         const [name, avatar] = pool[i % pool.length];
         total.join++;
         lastEventAt = Date.now();
-        hub.broadcast({ type: 'follow', name, avatar: avatar || '' });
+        hubRef.broadcast({ type: 'follow', name, avatar: avatar || '' });
         console.log('[' + stamp() + '] ⭐ 新关注（粉丝 ' + lastFollowerCount + '→' + fans + '）→ 打印 ' + name);
       }
     }
@@ -494,7 +570,9 @@ async function pollFollowers() {
 }
 
 // 串行悬停，避免多条评论同时移动鼠标导致资料卡串人。
+// hoverTried 记每个昵称的批次次数与上次时间：冷却 4 秒，最多 4 批（12 次点击轮），之后交给首字兜底。
 const hoverTried = new Map();
+const HOVER_COOLDOWN_MS = 4000, HOVER_MAX_BATCHES = 4;
 let hoverQueue = Promise.resolve();
 function hoverResolveAvatars(names) {
   const room = currentRoom;
@@ -538,9 +616,9 @@ export async function dismissProfileCard(rpc, force = false) {
 export async function resolveHoverBatch(names) {
   if (!cdpRef) return;
   for (const name of names) {
-    const last = hoverTried.get(name) || 0;
-    if (Date.now() - last < 6000) continue;
-    hoverTried.set(name, Date.now());
+    const rec = hoverTried.get(name);
+    if (rec && (rec.n >= HOVER_MAX_BATCHES || Date.now() - rec.t < HOVER_COOLDOWN_MS)) continue;
+    hoverTried.set(name, { t: Date.now(), n: (rec?.n || 0) + 1 });
     let avRaw = '';
     try {
       // 同一昵称最多点3轮，每轮换一个点击位置（靠左 / 靠左起点 / 居中 / 靠右），提高资料卡命中率。
@@ -549,15 +627,19 @@ export async function resolveHoverBatch(names) {
       const posRaw = (await cdpRef.rpc('Runtime.evaluate', {
         expression: `(() => {
           const name = ${JSON.stringify(name)};
-          const scope = window.__chatRoot;
-          if (!scope || !scope.isConnected) return '[]';
-          const els = [...scope.querySelectorAll('span,a,div')].filter(e => {
-            if (e.closest?.('[role="dialog"],dialog,a[href],button')) return false;
-            const text = (e.textContent || '').trim();
-            const r = e.getBoundingClientRect();
-            const matches = text === name || text === name + '：' || text === name + ':' || (!e.children.length && (text.startsWith(name + '：') || text.startsWith(name + ':')));
-            return matches && r.width > 2 && r.height > 2 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.left < innerWidth;
-          });
+          // 先在弹幕区找昵称；弹幕滚得快找不到时，退而全页找（观众列表/粉丝面板里的同款昵称也能开资料卡）。
+          const scopes = window.__chatRoot && window.__chatRoot.isConnected ? [window.__chatRoot, document] : [document];
+          let els = [];
+          for (const scope of scopes) {
+            els = [...scope.querySelectorAll('span,a,div')].filter(e => {
+              if (e.closest?.('[role="dialog"],dialog')) return false;
+              const text = (e.textContent || '').trim();
+              const r = e.getBoundingClientRect();
+              const matches = text === name || text === name + '：' || text === name + ':' || (!e.children.length && (text.startsWith(name + '：') || text.startsWith(name + ':')));
+              return matches && r.width > 2 && r.height > 2 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.left < innerWidth;
+            });
+            if (els.length) break;
+          }
           const el = els[els.length - 1];
           if (!el) return '[]';
           const r = el.getBoundingClientRect();
@@ -633,7 +715,7 @@ export async function resolveHoverBatch(names) {
       }
       await cdpRef.rpc('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2 }).catch(() => { });
       if (avRaw) {
-        feedAvatar(name, avRaw);
+        feedAvatar(name, avRaw, '资料卡');
         console.log('[' + stamp() + '] 🪪 点击资料卡获取到头像：' + name + '（第' + (round + 1) + '次点击·' + spot.label + '）');
       } else {
         console.log('头像补取：第' + (round + 1) + '次点击（' + spot.label + '）' + (cardSeen ? '头像未读取完成' : '资料卡未出现') + ' ' + name);
@@ -650,6 +732,7 @@ export async function resolveHoverBatch(names) {
 }
 
 async function run(hub) {
+  hubRef = hub;
   const room = currentRoom;
   let found = await findTarget(room);
   if (!found) {
@@ -682,15 +765,19 @@ async function run(hub) {
   };
   await cdpRef.rpc('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }).catch(() => { });
 
+  // 断线重连：永久重试但每次都带 catch，绝不让 unhandled rejection 杀掉进程。
+  const reconnect = () => setTimeout(() => {
+    run(hub).catch(e => {
+      console.error('[' + stamp() + '] ❌ ' + (e.message || e) + '，3 秒后重试');
+      reconnect();
+    });
+  }, 3000);
   const fail = err => {
     clearInterval(timer);
     cdpRef = null;
     console.log('[' + stamp() + '] 连接断开（%s），3 秒后重连…', err.message || err);
     try { ws.close() } catch { }
-    setTimeout(() => run(hub).catch(e => {
-      console.error('[' + stamp() + '] ❌ ' + (e.message || e));
-      setTimeout(() => run(hub), 3000);
-    }), 3000);
+    reconnect();
   };
   ws.onerror = () => { };
   ws.onclose = () => fail(new Error('CDP closed'));
@@ -698,7 +785,7 @@ async function run(hub) {
   function emit(ev) {
     lastEventAt = Date.now();
     hub.broadcast(ev);
-    if (ev.type === 'comment') { total.comment++; console.log('[' + stamp() + '] 💬 %s：%s', ev.name, ev.text || '') }
+    if (ev.type === 'comment') { total.comment++; console.log('[' + stamp() + '] 💬 %s：%s%s', ev.name, ev.text || '', ev.avatar ? ' 🪪' : ' △无头像') }
     else if (ev.type === 'gift') { total.gift++; console.log('[' + stamp() + '] 🎁 %s 送出 %s x%d → %s', ev.name, ev.raw, ev.count, ev.gift) }
     else if (ev.type === 'like') { total.like += ev.count; console.log('[' + stamp() + '] ❤️ %s 点赞 +%d%s', ev.name, ev.count, ev.avatar ? '（带头像）' : '') }
     else if (ev.type === 'join') { total.join++; console.log('[' + stamp() + '] 👋 %s 进入直播间', ev.name) }
@@ -711,7 +798,7 @@ async function run(hub) {
       if (!a || !n || n === owner || isJunkName(n)) continue;
       if (!roster.has(n) && !(s.lines || []).some(line => parseChatLine(line)?.name === n)) continue;
       if (!roster.has(n)) likeState.used.clear();
-      feedAvatar(n, a);
+      feedAvatar(n, a, '页面头像');
     }
     const normAvatars = {};
     for (const [n, a] of Object.entries(s.avatars || {})) { const k = normKey(n); if (k && a && !normAvatars[k]) normAvatars[k] = a; }
@@ -737,11 +824,18 @@ async function run(hub) {
       lastLikes = s.likes;
     }
     const parsedNames = [];
+    // 挂接前已滚过的历史弹幕只做头像同步，不打印——开局不该吐一堆旧评论，且它们的协议帧早已消失、头像注定补不齐。
+    if (!historySkipped && (s.lines || []).length) {
+      historySkipped = true;
+      let skipped = 0;
+      for (const line of s.lines) if (!seen.has(line)) { seen.add(line); skipped++; }
+      if (skipped) console.log('[' + stamp() + '] ⏭ 跳过挂接前已存在的 %d 条历史弹幕（不打印旧评论）', skipped);
+    }
     for (const line of diffNew(s.lines || [], seen)) {
       const ev = parseChatLine(line);
       if (!ev) continue;
       const key = normKey(ev.name);
-      const avatar = avatars[ev.name] || (key && (normMap.get(key) || normAvatars[key])) || roster.get(ev.name) || '';
+      const avatar = avatars[ev.name] || (key && (normMap.get(key) || normAvatars[key])) || lookupAvatar(ev.name) || roster.get(ev.name) || '';
       if (!roster.has(ev.name)) likeState.used.clear();
       roster.set(ev.name, avatar);
       lastSeen.set(ev.name, Date.now());
@@ -750,7 +844,15 @@ async function run(hub) {
         // Preserve every comment, including repeated text; resolve its avatar before dispatch.
         commentResolution = commentResolution.then(async () => {
           if (room !== currentRoom) return;
-          if (!avatars[ev.name] && !avatar) await hoverResolveAvatars([ev.name]);
+          // 协议帧与弹幕几乎同时到达且必带头像：先短暂等待，命中就免去一次资料卡点击。
+          if (!avatars[ev.name] && !(key && normMap.get(key)) && !avatar) {
+            for (let i = 0; i < 12 && room === currentRoom; i++) {
+              await sleep(200);
+              if (avatars[ev.name] || (key && normMap.get(key))) break;
+            }
+          }
+          if (room !== currentRoom) return;
+          if (!avatars[ev.name] && !(key && normMap.get(key)) && !avatar) await hoverResolveAvatars([ev.name]);
           if (room !== currentRoom) return;
           const resolved = avatars[ev.name] || (key && normMap.get(key)) || avatar;
           emit({ type: 'comment', name: ev.name, text: ev.text, avatar: resolved || '' });
@@ -807,12 +909,35 @@ async function run(hub) {
   sweep.unref?.();
 }
 
+// 切换房间（set-room 消息与 .bridge-room 文件变更共用）：重置状态、广播、导航新房间。
+function applyRoom(room, persist) {
+  if (room === currentRoom) {
+    hubRef?.broadcast({ type: 'hello', room, people: [...roster.entries()].slice(0, 6).map(([name, avatar]) => ({ name, avatar })) });
+    return;
+  }
+  currentRoom = room;
+  if (persist) { try { fs.writeFileSync(path.join(__dirname, '.bridge-room'), room) } catch { } }
+  console.log('[' + stamp() + '] 📺 切换直播间 → ' + room);
+  resetRoomState();
+  hubRef?.broadcast({ type: 'hello', room, people: [] });
+  if (cdpRef) cdpRef.rpc('Page.navigate', { url: 'https://live.douyin.com/' + room }).catch(() => { });
+}
+
 async function main() {
   const argRoom = (process.argv[2] || '').replace(/\D/g, '');
   let fileRoom = '';
   try { fileRoom = ((fs.readFileSync(path.join(__dirname, '.bridge-room'), 'utf8').match(/(\d{5,25})/)) || [])[1] || '' } catch { }
   currentRoom = argRoom || fileRoom || currentRoom;
   if (!currentRoom) { console.error('请提供直播间号：node douyin-bridge.mjs 房间号（也可写入 .bridge-room 文件，或在打印程序里切换房间）'); process.exit(1); }
+  loadAvatarCache();
+  setInterval(saveAvatarCache, 30000).unref?.();
+  process.on('exit', saveAvatarCache);
+  // 自动跟随 .bridge-room：应用重开别的直播窗口或手改文件，无需重启数据桥。
+  setInterval(() => {
+    let fileRoom = '';
+    try { fileRoom = ((fs.readFileSync(path.join(__dirname, '.bridge-room'), 'utf8').match(/(\d{5,25})/)) || [])[1] || '' } catch { }
+    if (fileRoom && fileRoom !== currentRoom) applyRoom(fileRoom, false);
+  }, 2000).unref?.();
   const wsPort = Number(process.argv[3]) || 8765;
   const hub = startWSServer(wsPort, {
     onStatus: p => console.log('[' + stamp() + '] ✅ 数据桥服务 ws://127.0.0.1:' + p + '（等待打印页面接入）'),
@@ -825,23 +950,18 @@ async function main() {
       if (m.type !== 'set-room') return;
       const id = String(m.room || '').match(/(\d{5,25})/);
       if (!id) return;
-      const room = id[1];
-      if (room === currentRoom) { hub.broadcast({ type: 'hello', room, people: [...roster.entries()].slice(0, 6).map(([name, avatar]) => ({ name, avatar })) }); return }
-      currentRoom = room;
-      try { fs.writeFileSync(path.join(__dirname, '.bridge-room'), room) } catch { }
-      console.log('[' + stamp() + '] 📺 切换直播间 → ' + room);
-      resetRoomState();
-      hub.broadcast({ type: 'hello', room, people: [] });
-      if (cdpRef) cdpRef.rpc('Page.navigate', { url: 'https://live.douyin.com/' + room }).catch(() => { });
+      applyRoom(id[1], true);
     }
   });
   console.log('房间号 ' + currentRoom + '。正在弹出直播间窗口（可在里面登录抖音）；来源优先级：自建窗口(:9223) → BrowserOS(:9110) → 调试Chromium(:9222)');
   try { await run(hub) } catch (e) {
     console.error('[' + stamp() + '] ❌ ' + e.message);
     console.error('提示：先打开 BrowserOS neo（会自动用 :9110），或重试本命令。');
-    process.exitCode = 1;
+    // 启动失败必须退进程，否则 WS 服务把事件循环吊住，变成占着 8765 端口的僵尸。
+    saveAvatarCache();
+    process.exit(1);
   }
-  process.on('SIGINT', () => process.exit());
+  process.on('SIGINT', () => { saveAvatarCache(); process.exit() });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

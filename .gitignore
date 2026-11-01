@@ -2,6 +2,7 @@
 .bridge-profile/
 .live-webview-profile/
 .printer-webview-profile/
+.scene-webview-profile/
 
 # ===== 运行状态与日志（含观众昵称、弹幕、房间号）=====
 *.log
@@ -16,3 +17,8 @@ TEST-REPORT.md
 # ===== 本地参考图片（不发布）=====
 storyboard.jpg
 reference.jpg
+
+# ===== 头像持久缓存与协议探针产物（含观众昵称，不发布）=====
+avatar-cache.json
+ws-samples/
+live-acceptance.log

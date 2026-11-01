@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {parseChatLine,mapGift,parseLike,diffNew,allocateLikes,normKey,pbDecode,extractUser,isJunkName} from './douyin-bridge.mjs';
+import {parseChatLine,mapGift,parseLike,diffNew,allocateLikes,normKey,pbDecode,extractUser,isJunkName,collectUsers,isAvatarUrl,_handleWSFrameForTest,_injectHubForTest,_avatarStateForTest} from './douyin-bridge.mjs';
 
 test('评论解析',()=>{assert.deepEqual(parseChatLine('天观星系：打印了'),{kind:'comment',name:'天观星系',text:'打印了'});assert.deepEqual(parseChatLine('马达研究者：666'),{kind:'comment',name:'马达研究者',text:'666'})});
 test('礼物解析(空格形态)',()=>{const r=parseChatLine('蛋小黑 送出 大啤酒 x2');assert.equal(r.kind,'gift');assert.equal(r.name,'蛋小黑');assert.equal(r.gift,'大啤酒');assert.equal(r.count,2)});
@@ -35,7 +35,7 @@ test('悬停头像脚本可以编译，头像缓存供后续事件复用', async
     const expression=new Function('name','return `'+template+'`;')('测试');
     assert.doesNotThrow(()=>new Function(expression));
   }
-  assert.ok(source.includes('feedAvatar(n, a)'));
+  assert.ok(source.includes('feedAvatar(n, a,'));
   assert.ok(source.includes('normMap.get(key) || normAvatars[key]'));
 });
 
@@ -110,4 +110,71 @@ test('资料卡补取发送完整单击事件',async()=>{
  await clickNickname(async(method,params)=>calls.push({method,...params}),120,240);
  assert.deepEqual(calls.map(c=>c.type),['mouseMoved','mousePressed','mouseReleased']);
  assert.ok(calls.every(c=>c.x===120&&c.y===240));assert.equal(calls[1].button,'left');assert.equal(calls[2].clickCount,1);
+});
+
+// —— 协议级头像抓取回归（按真实抓包结构合成，见 ws-samples/chat-tree.txt）——
+const fld=(n,p)=>{const bytes=[n*8+2];let size=p.length;do{let b=size&127;size>>>=7;if(size)b|=128;bytes.push(b)}while(size);return Buffer.concat([Buffer.from(bytes),p])};
+const vint=(n,v)=>{const bytes=[n*8];let x=BigInt(v);do{let b=Number(x&127n);x>>=7n;if(x)b|=128;bytes.push(b)}while(x);return Buffer.from(bytes)};
+
+test('isAvatarUrl：真头像放行，勋章/等级/标签/礼物图一律拒绝',()=>{
+  assert.equal(isAvatarUrl('https://p3.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_a.jpeg?from=3067671334'),true);
+  assert.equal(isAvatarUrl('https://p11.douyinpic.com/img/webcast/07a5d8b6e33c1bec1d2b3c4d5e6f7a8b.jpeg'),true);
+  assert.equal(isAvatarUrl('https://p11-webcast.douyinpic.com/img/webcast/new_user_grade_level_v1_17.png~tplv-obj.image'),false);
+  assert.equal(isAvatarUrl('https://p3-webcast.douyinpic.com/img/webcast/userlabel_regular_watch.png~tplv-obj.image'),false);
+  assert.equal(isAvatarUrl('https://p3-webcast.douyinpic.com/img/webcast/gift/abc.image'),false);
+  assert.equal(isAvatarUrl(''),false);
+});
+
+test('Chat 消息：取 User 结构的真实昵称+头像，而不是弹幕文本或勋章图（回归张冠李戴）',()=>{
+  const avatar='https://p11.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_abc.jpeg?from=3067671334';
+  const common=Buffer.concat([fld(1,Buffer.from('WebcastChatMessage')),vint(2,1234567890),vint(6,1)]);
+  const user=Buffer.concat([
+    fld(3,Buffer.from('协议测试甲')),
+    fld(9,fld(1,Buffer.from(avatar))),
+    fld(21,fld(1,Buffer.from('https://p11-webcast.douyinpic.com/img/webcast/new_user_grade_level_v1_17.png~tplv-obj.image')))
+  ]);
+  const chat=Buffer.concat([fld(1,common),fld(2,user),fld(3,Buffer.from('你好直播间'))]);
+  assert.deepEqual(collectUsers(chat),[{name:'协议测试甲',avatar}]);
+  assert.deepEqual(extractUser(chat),{name:'协议测试甲',avatar});
+});
+
+test('ResponseMessage 信封端到端：Common 内嵌方法串不再误杀消息体',()=>{
+  const avatar='https://p26.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_def.jpeg?from=3067671334';
+  const common=Buffer.concat([fld(1,Buffer.from('WebcastChatMessage')),vint(2,42)]);
+  const user=Buffer.concat([fld(3,Buffer.from('协议测试乙')),fld(9,Buffer.concat([fld(1,Buffer.from(avatar)),fld(1,Buffer.from(avatar))]))]);
+  const chat=Buffer.concat([fld(1,common),fld(2,user),fld(3,Buffer.from('在吗'))]);
+  const envelope=Buffer.concat([fld(1,Buffer.from('WebcastChatMessage')),fld(2,chat)]);
+  const resp=Buffer.concat([fld(1,envelope),fld(2,Buffer.from('t-1793501830670_r-1_d-1_u-1'))]);
+  assert.deepEqual(extractUser(resp),{name:'协议测试乙',avatar});
+  // handleWSFrame 端到端：头像进入花名册与持久缓存
+  _handleWSFrameForTest(resp);
+  const st=_avatarStateForTest();
+  assert.equal(st.avatars['协议测试乙'],avatar);
+  assert.ok(st.roster.some(([n,a])=>n==='协议测试乙'&&a===avatar));
+  assert.equal(st.cache.find(([n])=>n==='协议测试乙')?.[1],avatar,'协议头像应写入持久缓存');
+});
+
+test('RoomUserSeq：一次喂多名活跃观众头像且不产生事件',()=>{
+  const a1='https://p3.douyinpic.com/aweme/100x100/aweme-avatar/u1.jpeg',a2='https://p26.douyinpic.com/aweme/100x100/aweme-avatar/u2.jpeg';
+  const u1=Buffer.concat([fld(3,Buffer.from('协议观众一')),fld(9,fld(1,Buffer.from(a1)))]);
+  const u2=Buffer.concat([fld(3,Buffer.from('协议观众二')),fld(9,fld(1,Buffer.from(a2)))]);
+  const seq=Buffer.concat([vint(1,123),fld(2,Buffer.concat([fld(1,u1),fld(2,u2)]))]);
+  assert.deepEqual(collectUsers(seq).map(u=>u.name),['协议观众一','协议观众二']);
+  const envelope=Buffer.concat([fld(1,Buffer.from('WebcastRoomUserSeqMessage')),fld(2,seq)]);
+  _handleWSFrameForTest(Buffer.concat([fld(1,envelope)]));
+  const st=_avatarStateForTest();
+  assert.equal(st.avatars['协议观众一'],a1);
+  assert.equal(st.avatars['协议观众二'],a2);
+});
+
+test('Like 协议帧：广播点赞并附带头像',()=>{
+  const avatar='https://p3.douyinpic.com/aweme/100x100/aweme-avatar/liker.jpeg';
+  const got=[];
+  _injectHubForTest({broadcast:ev=>got.push(ev),clientCount:()=>1});
+  const user=Buffer.concat([fld(3,Buffer.from('协议点赞丙')),fld(9,fld(1,Buffer.from(avatar)))]);
+  const like=Buffer.concat([fld(1,Buffer.from([0x08,0x01])),fld(2,user),vint(3,2)]);
+  _handleWSFrameForTest(fld(1,Buffer.concat([fld(1,Buffer.from('WebcastLikeMessage')),fld(2,like)])));
+  const ev=got.find(e=>e.type==='like'&&e.name==='协议点赞丙');
+  assert.ok(ev,'应广播协议级点赞');assert.equal(ev.avatar,avatar);assert.ok(ev.count>=1);
+  _injectHubForTest(null);
 });

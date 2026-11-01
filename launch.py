@@ -42,34 +42,60 @@ class DesktopApi:
         self._live = None
         self._bridge = None
         self._room = None
+        self._scene_windows = []
         self._lock = threading.RLock()
+
+    def open_scene_window(self, raw=None):
+        # 独立场景窗口：纯 3D 打印画面，适合 OBS 窗口采集/第二屏幕。接受语言页路径（/index.html 或 /index-en.html）。
+        import webview, re as _re
+        path = str(raw or '')
+        if not _re.fullmatch(r'/[A-Za-z0-9_\-]+\.html\?scene=1', path):
+            path = '/index.html?scene=1'
+        url = 'http://127.0.0.1:8080' + path
+
+        def spawn():
+            try:
+                win = webview.create_window('Scene Window · Avatar Printer',
+                                            url,
+                                            width=1280, height=720, background_color='#0b0e14')
+                self._scene_windows.append(win)
+            except Exception as exc:
+                print('scene window error:', exc, flush=True)
+
+        threading.Thread(target=spawn, daemon=True).start()
+        return '独立场景窗口已打开 / Scene window opened：打印由它接管，本窗口只计数。'
 
     def open_live_room(self, raw):
         with self._lock:
             room = room_id(raw)
             if self._live and self._live.poll() is None:
                 if room == self._room:
-                    return '直播窗口已经打开，请切换到该窗口登录。'
-                return '请先关闭已有直播窗口，再打开新的房间。'
+                    return '直播窗口已打开，请切换登录 / Live window already open — switch to it and log in.'
+                # 直接换房间：关掉旧窗口开新窗口；运行中的数据桥会自动跟随 .bridge-room 切换。
+                try:
+                    self._live.terminate()
+                    self._live.wait(timeout=5)
+                except Exception:
+                    pass
+                self._live = None
             if listening(9224):
-                raise RuntimeError('直播窗口端口 9224 已被占用，请关闭旧应用后重试')
-            self.stop_capture()
+                raise RuntimeError('端口 9224 被占用，请关闭旧直播窗口 / Port 9224 busy — close the old live window')
             self._room = room
             (ROOT / '.bridge-room').write_text(room, encoding='utf-8')
             env = os.environ.copy()
             env['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = '--remote-debugging-port=9224 --remote-debugging-address=127.0.0.1'
             self._live = subprocess.Popen([sys.executable, str(ROOT / 'launch.py'), '--live-room', room], cwd=ROOT, env=env)
-            return '已打开独立直播窗口，请登录后点击“开始抓取”。'
+            return '直播窗口已打开，登录后点“开始抓取” / Live window opened — log in, then click Start Capture.'
 
     def start_capture(self, raw):
         with self._lock:
             room = room_id(raw)
             if not self._live or self._live.poll() is not None or room != self._room:
-                raise RuntimeError('请先打开这个房间的独立直播窗口并登录')
+                raise RuntimeError("请先打开该房间的直播窗口并登录 / Open this room's live window and log in first")
             if self._bridge and self._bridge.poll() is None:
-                return '数据桥已经运行。'
+                return '数据桥已在运行 / Bridge already running.'
             if listening(8765):
-                raise RuntimeError('旧数据桥仍占用 8765 端口，请关闭旧版启动程序')
+                return '数据桥已在运行，自动跟随换房 / Bridge running — follows room switches automatically.'
             with urllib.request.urlopen('http://127.0.0.1:9224/json/list', timeout=3) as response:
                 pages = json.load(response)
             if not any(re.match(r'https://live\.douyin\.com/' + room + r'(?:[/?#]|$)', p.get('url', '')) for p in pages):
@@ -90,7 +116,14 @@ class DesktopApi:
                 self._bridge.terminate()
                 self._bridge.wait(timeout=5)
             self._bridge = None
-            return '抓取已停止，可以继续在直播窗口观看。'
+            # 也停掉手动 node douyin-bridge.mjs 启动的外部数据桥。
+            try:
+                subprocess.run(['powershell', '-NoProfile', '-Command',
+                                "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'douyin-bridge.mjs' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                                timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+            except Exception:
+                pass
+            return '抓取已停止 / Capture stopped.'
 
     def close(self):
         self.stop_capture()
