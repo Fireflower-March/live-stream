@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>直播小窗 · Avatar Printer</title><style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:#000;overflow:hidden}
+video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+#hint{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#667282;font:14px 'Microsoft YaHei',sans-serif;letter-spacing:1px;text-align:center;line-height:1.9}
+#hint a{color:#9fc3e8}
+</style></head><body>
+<div id="hint"><div>⏳ 等待主窗口直播画面…</div><div style="font-size:12px">请保持主窗口（打印台）开启且不要最小化<br><a id="fallback" href="/index.html?scene=1" style="display:none">镜像不可用？点此用独立渲染窗口打开</a></div></div>
+<video id="v" autoplay playsinline muted></video>
+<script>
+// 直播小窗：只做一件事——把主窗口正在渲染的 3D 画面镜像过来给 OBS 抓取。
+// 不渲染、不打印、不参与主窗口的打印选举；信号走 BroadcastChannel（同源）。
+const bc = new BroadcastChannel('printer-scene');
+const v = document.getElementById('v'), hint = document.getElementById('hint');
+let pc = null, watchdog = 0, connected = false;
+
+function showHint(on) { hint.style.display = on ? 'flex' : 'none' }
+function armWatchdog() { clearTimeout(watchdog); watchdog = setTimeout(() => { if (!v.srcObject || v.readyState < 2) { connected = false; showHint(true); request() } }, 5000) }
+function request() { try { bc.postMessage({ type: 'view-request' }) } catch (e) { } }
+function teardown() { if (pc) { try { pc.close() } catch (e) { } pc = null } v.srcObject = null; connected = false }
+
+bc.onmessage = async ev => {
+  const m = ev.data || {};
+  if (m.type === 'view-offer' && m.sdp) {
+    try {
+      teardown();
+      pc = new RTCPeerConnection();
+      pc.ontrack = e => {
+        v.srcObject = e.streams[0];
+        v.play().catch(() => { });
+        connected = true; showHint(false); armWatchdog();
+      };
+      pc.onicecandidate = e => { if (e.candidate) try { bc.postMessage({ type: 'view-ice', candidate: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } }) } catch (e) { } };
+      pc.onconnectionstatechange = () => { if (pc && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected')) reset() };
+      await pc.setRemoteDescription(m.sdp);
+      const ans = await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      try { bc.postMessage({ type: 'view-answer', sdp: { type: ans.type, sdp: ans.sdp } }) } catch (e) { }
+    } catch (e) { reset() }
+  } else if (m.type === 'view-ice' && pc && m.candidate) {
+    try { pc.addIceCandidate(m.candidate).catch(() => { }) } catch (e) { }
+  }
+};
+function reset() { teardown(); showHint(true); request(); armWatchdog() }
+
+request();
+setInterval(() => { try { bc.postMessage(connected ? { type: 'view-ping' } : { type: 'view-request' }) } catch (e) { } }, 3000);
+armWatchdog();
+window.addEventListener('beforeunload', () => { try { bc.postMessage({ type: 'view-bye' }) } catch (e) { } });
+</script>
+</body></html>

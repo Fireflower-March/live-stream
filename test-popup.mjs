@@ -93,33 +93,30 @@ async function main() {
   ok('主页面初始无让位提示', JSON.parse(mainState).note === '');
 
   // 2) 开场景页（弹窗模式）
-  const scene = await openTab(BASE + '/index.html?scene=1');
+  const scene = await openTab(BASE + '/live-view.html');
   await sleep(5000);
-  const sceneState = await evalIn(scene, `JSON.stringify({url:location.href,cls:document.body.className,sceneOnly:document.body.classList.contains('scene-only'),side:getComputedStyle(document.querySelector('.side')).display,badge:getComputedStyle(document.querySelector('.canvas .live')||document.body).display,gear:[...document.querySelectorAll('button')].some(b=>(b.textContent||'').indexOf('⚙')>=0),cw:document.getElementById('stage').clientWidth,ch:document.getElementById('stage').clientHeight})`, 40000);
-  console.log('  [场景页状态]', sceneState);
+  const sceneState = await evalIn(scene, `JSON.stringify({src:!!document.getElementById('v').srcObject,ready:(document.getElementById('v').readyState||0)>=2,hint:getComputedStyle(document.getElementById('hint')).display})`, 40000);
+  console.log('  [小窗状态]', sceneState);
   if (sceneState !== '__TIMEOUT__') {
     const s = JSON.parse(sceneState);
-    ok('弹窗进入场景模式（body 类）', s.sceneOnly === true);
-    ok('侧栏面板全部隐藏', s.side === 'none');
-    ok('LIVE PREVIEW 角标隐藏', s.badge === 'none');
-    ok('画布铺满窗口', s.cw > 900 && s.ch > 600, `${s.cw}×${s.ch}`);
-    ok('⚙ 设置面板存在（场景模式专用）', s.gear === true);
-  } else ok('场景页 DOM 断言', false, 'evaluate 超时（软件渲染过慢）');
+    ok('小窗收到主窗口视频流（镜像）', s.src === true && s.ready === true, 'src=' + s.src + ' ready=' + s.ready);
+    ok('流建立后提示自动隐藏', s.hint === 'none');
+  } else ok('小窗镜像断言', false, 'evaluate 超时');
 
   // 3) 领导者选举：场景窗口应接管，主页面让位
   await sleep(4000);
   const mainNote = await evalIn(main, `(document.getElementById('yield-note')||{}).textContent||''`, 30000);
-  ok('领导者选举：主页面让位（提示接管中）', mainNote !== '__TIMEOUT__' && /接管打印中/.test(mainNote), mainNote);
+  ok('主窗口不冻结：镜像期间无“接管打印中”提示', mainNote !== '__TIMEOUT__' && !/接管打印中/.test(mainNote), mainNote || '(空)');
 
   // 4) 关闭场景窗口 → 主页面自动恢复
   await browserConn.rpc('Target.closeTarget', { targetId: scene.targetId });
-  await sleep(8000);
+  await sleep(14000);
   const mainNote2 = await evalIn(main, `(document.getElementById('yield-note')||{}).textContent||''`, 30000);
-  ok('关闭弹窗后主页面自动恢复接管', mainNote2 !== '__TIMEOUT__' && mainNote2 === '', mainNote2 || '(空=已恢复)');
+  ok('关闭小窗后镜像状态清除', mainNote2 !== '__TIMEOUT__' && !/直播小窗镜像中/.test(mainNote2), mainNote2 || '(空=已清除)');
 
   // 5) 场景页运行时异常统计（整个测试期间）
   const sceneErrs = scene.conn.errs;
-  ok('弹窗页面运行时 0 异常', sceneErrs.length === 0, sceneErrs.slice(0, 2).join(' | '));
+  ok('小窗页面运行时 0 异常', sceneErrs.length === 0, sceneErrs.slice(0, 2).join(' | '));
   const mainErrs = main.conn.errs;
   ok('主页面运行时 0 异常', mainErrs.length === 0, mainErrs.slice(0, 2).join(' | '));
 
