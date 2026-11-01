@@ -22,3 +22,6 @@ reference.jpg
 avatar-cache.json
 ws-samples/
 live-acceptance.log
+
+# ===== 发布压缩包（不入库）=====
+*.zip
