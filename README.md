@@ -7,6 +7,14 @@
 
 功能介绍见 http://127.0.0.1:8080/features.html ，完整使用教程见 http://127.0.0.1:8080/guide.html （打印台顶部也有入口）。本软件完全开源、免费使用，由 志哥AI 出品。
 
+## 🎬 视频教程（零基础入门全流程）
+
+<p align="center">
+  <a href="https://www.bilibili.com/video/BV1WJxx61EUf/"><img src="docs/tutorial-cover.jpg" width="62%" alt="3D打印直播间程序开源啦，完整零基础新手入门全流程教程"></a>
+</p>
+
+▶ **[完整零基础新手入门全流程教程（哔哩哔哩）](https://www.bilibili.com/video/BV1WJxx61EUf/)** —— 从安装到开播，跟着视频一步步来即可。
+
 ## 界面预览
 
 <p align="center">
