@@ -25,3 +25,5 @@ live-acceptance.log
 
 # ===== 发布压缩包（不入库）=====
 *.zip
+
+.err-check/

@@ -365,7 +365,7 @@ $('demo').onclick=()=>{for(let i=0;i<8;i++)add(randomPerson())};
 $('demo-speed').onchange=()=>simulationSpeed=Number($('demo-speed').value);
 function resetDemo(){giftSpeech.stop();machineAudio.cue('reset');if(currentProduct)disposeProduct(currentProduct);for(const p of products)disposeProduct(p);products.length=0;currentProduct=null;active=null;queue.length=0;demoEngine.likes.clear();demoEngine.seen.clear();demoEngine.follows.clear();busy=false;paused=false;phase='idle';elapsed=0;count=0;lastLiveMsgAt=Date.now();articulateArm(0);$('count').textContent='0';$('score').textContent='等待打印';$('currentName').textContent='测试已重置';$('currentImg').src=placeholder;$('toggle').textContent='暂停打印';renderQueue();updateScreen();$('demo-log').innerHTML=''}
 $('reset-demo').onclick=resetDemo;
-('scenario').onclick=()=>{resetDemo();simulationSpeed=12;$('demo-speed').value='12';for(const type of ['like','heart','beer','lollipop'])triggerDemo(type);logDemo('本轮7张：小图1张，大图6张；头像随机抽取。')};
+$('scenario').onclick=()=>{resetDemo();simulationSpeed=12;$('demo-speed').value='12';for(const type of ['like','heart','beer','lollipop'])triggerDemo(type);logDemo('本轮7张：小图1张，大图6张；头像随机抽取。')};
 document.querySelector('footer').textContent='演示材质分档：60–69 胡桃木/古铜圆框 · 70–79 拉丝铝/刻纹银框 · 80–89 深色石材/八角钢框 · 90–95 象牙色陶瓷/黄铜双环。模拟外观，不代表普通FDM可直接打印玻璃或金属。评分为随机娱乐分数。';$('status').textContent='本地规则演示';$('mode').textContent='● 测试数据';
 
 // Saved screenshot-derived avatar atlas; original fictional nicknames, randomized demo order.

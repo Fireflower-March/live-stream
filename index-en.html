@@ -365,7 +365,7 @@ $('demo').onclick=()=>{for(let i=0;i<8;i++)add(randomPerson())};
 $('demo-speed').onchange=()=>simulationSpeed=Number($('demo-speed').value);
 function resetDemo(){giftSpeech.stop();machineAudio.cue('reset');if(currentProduct)disposeProduct(currentProduct);for(const p of products)disposeProduct(p);products.length=0;currentProduct=null;active=null;queue.length=0;demoEngine.likes.clear();demoEngine.seen.clear();demoEngine.follows.clear();busy=false;paused=false;phase='idle';elapsed=0;count=0;lastLiveMsgAt=Date.now();articulateArm(0);$('count').textContent='0';$('score').textContent='Waiting to print';$('currentName').textContent='Demo reset';$('currentImg').src=placeholder;$('toggle').textContent='Pause printing';renderQueue();updateScreen();$('demo-log').innerHTML=''}
 $('reset-demo').onclick=resetDemo;
-('scenario').onclick=()=>{resetDemo();simulationSpeed=12;$('demo-speed').value='12';for(const type of ['like','heart','beer','lollipop'])triggerDemo(type);logDemo('7 prints: 1 small, 6 large; random avatars.')};
+$('scenario').onclick=()=>{resetDemo();simulationSpeed=12;$('demo-speed').value='12';for(const type of ['like','heart','beer','lollipop'])triggerDemo(type);logDemo('7 prints: 1 small, 6 large; random avatars.')};
 document.querySelector('footer').textContent='Material tiers: 60–69 walnut/bronze frame · 70–79 brushed aluminum/engraved silver · 80–89 dark stone/octagon steel · 90–95 ivory ceramic/brass. Cosmetic only — not real FDM printable glass or metal. Scores are random, for fun.';$('status').textContent='Local demo';$('mode').textContent='● Test data';
 
 // Saved screenshot-derived avatar atlas; original fictional nicknames, randomized demo order.
