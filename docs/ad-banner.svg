@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="150" viewBox="0 0 1200 150">
+  <defs>
+    <linearGradient id="adg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#141c28"/>
+      <stop offset=".58" stop-color="#28324a"/>
+      <stop offset="1" stop-color="#ff6852"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="150" fill="url(#adg)"/>
+  <rect x="7" y="7" width="1186" height="136" rx="12" fill="none" stroke="#ffbc79" stroke-width="2" stroke-dasharray="12 7"/>
+  <text x="46" y="52" fill="#ffbc79" font-size="22" font-family="Microsoft YaHei,'PingFang SC',sans-serif" font-weight="700" letter-spacing="2">📌 广告位 · 承接各类软件开发</text>
+  <text x="46" y="112" fill="#ffffff" font-size="40" font-family="Microsoft YaHei,'PingFang SC',sans-serif" font-weight="900" letter-spacing="1">接程序开发 · 直播程序开发</text>
+  <text x="1154" y="90" fill="#ffe9c2" font-size="40" font-family="Consolas,'Courier New',monospace" font-weight="900" text-anchor="end">☎ 17398730078</text>
+  <text x="1154" y="122" fill="#ffd9a8" font-size="18" font-family="Microsoft YaHei,sans-serif" text-anchor="end">电话/微信同号 · 长期有效</text>
+</svg>
