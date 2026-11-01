@@ -378,6 +378,13 @@ if(SCENE_MODE){
   try{rs.value=localStorage.getItem('printer-room')||'home'}catch(e){};rs.onchange=()=>setRoom(rs.value);row('Room scene',rs);
   const dv=document.createElement('button');dv.textContent='Default view';dv.style.cssText=btnStyle;dv.onclick=()=>applyView({id:'',p:defaultCamPos,t:defaultCamTarget});panel.append(dv);
   bar.append(gear,panel);document.body.append(bar);
+  // 采集纯净模式：⚙ 按钮 3 秒无鼠标活动自动淡出，移动鼠标即重现（面板展开时不淡出）。
+  gear.style.transition='opacity .45s';let gearTimer=0;
+  const showGear=v=>{gear.style.opacity=v?'1':'0';gear.style.pointerEvents=v?'auto':'none'};
+  const idleGear=()=>{if(panel.style.display!=='none')return;showGear(false)};
+  window.addEventListener('mousemove',()=>{showGear(true);clearTimeout(gearTimer);gearTimer=setTimeout(idleGear,3000)});
+  bar.addEventListener('mouseleave',idleGear);
+  gearTimer=setTimeout(idleGear,3000);
   // 直播采集纯净画面：隐藏左上角 AI 背景角标与 LIVE PREVIEW 角标，只留 3D 渲染本身。
   generatedStatus.style.display='none';
   const lv=document.querySelector('.canvas .live');if(lv)lv.style.display='none';
