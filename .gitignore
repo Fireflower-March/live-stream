@@ -33,3 +33,5 @@ popup-test-result.json
 
 .output-test/
 .capture-compat*
+
+.cover-profile/
