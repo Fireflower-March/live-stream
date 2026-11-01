@@ -29,10 +29,16 @@ def listening(port):
         sock.settimeout(.3)
         return sock.connect_ex(('127.0.0.1', port)) == 0
 
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+def local_get(url, timeout_s=1.5):
+    # 本机健康检查必须直连：系统代理（Clash 等）会拦截 127.0.0.1 请求。
+    return _LOCAL_OPENER.open(url, timeout=timeout_s)
+
 def bridge_status():
     for port in range(8765, 8775):
         try:
-            with urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=.15) as response:
+            with local_get(f'http://127.0.0.1:{port}/health', 1.5) as response:
                 data = json.load(response)
             if data.get('service') == 'avatar-printer' and os.path.normcase(data.get('identity', '')) == os.path.normcase(str(ROOT)):
                 return dict(ok=True, port=port, url=f'ws://127.0.0.1:{port}')
@@ -52,13 +58,23 @@ def wait_bridge(process):
     raise RuntimeError('数据桥启动超时，请查看 desktop-bridge.log')
 
 
+ACTIVE_PORT = 8080
+
 def ensure_server():
-    url = 'http://127.0.0.1:8080/'
-    if listening(8080):
-        with urllib.request.urlopen(url, timeout=3) as response:
-            if 'AVATAR PRINT STUDIO' not in response.read(100000).decode('utf-8', errors='replace'):
-                raise RuntimeError('8080 端口被其他程序占用')
-        return url, None
+    global ACTIVE_PORT
+    # 8080 被代理等程序占用时自动换备用端口（8081/8181/8088）。
+    for port in (8080, 8081, 8181, 8088, 8090, 8095, 8282, 8388):
+        if not listening(port):
+            ACTIVE_PORT = port
+            break
+        try:
+            with local_get(f'http://127.0.0.1:{port}/', 3) as response:
+                if 'AVATAR PRINT STUDIO' in response.read(100000).decode('utf-8', errors='replace'):
+                    ACTIVE_PORT = port
+                    return f'http://127.0.0.1:{port}/', None
+        except Exception:
+            pass
+    ACTIVE_PORT = 8081
     relay = SceneRelay()
     bridge_process = None
     class Handler(SimpleHTTPRequestHandler):
@@ -72,7 +88,7 @@ def ensure_server():
         # 叠加一个本地控制端点：让浏览器页面也能拉起“独立应用窗口”（无浏览器界面）。
         def _guard(self):
             # 只允许本机页面调用（防其它网站借用本地服务拉进程）。
-            if self.headers.get('Host', '') != '127.0.0.1:8080':
+            if not str(self.headers.get('Host', '')).startswith('127.0.0.1:' + str(ACTIVE_PORT)):
                 return False
             return self.headers.get('Sec-Fetch-Site', '') == 'same-origin'
 
@@ -146,7 +162,12 @@ def ensure_server():
                 q = parse_qs(urlparse(self.path).query)
                 room = ''.join(ch for ch in (q.get('room') or [''])[0] if ch.isdigit())[-25:]
                 if not re.fullmatch(r'\d{5,25}', room):
-                    return self._json(400, '{"ok":false,"error":"bad room"}')
+                    try:
+                        room = ''.join(ch for ch in (ROOT / '.bridge-room').read_text(encoding='utf-8') if ch.isdigit())[-25:]
+                    except Exception:
+                        room = ''
+                if not re.fullmatch(r'\d{5,25}', room):
+                    return self._json(400, '{"ok":false,"error":"no room"}')
                 if bridge_status()["ok"]:
                     return self._json(200, '{"ok":true,"already":true}')
                 node = shutil.which('node')
@@ -154,8 +175,11 @@ def ensure_server():
                     return self._json(500, '{"ok":false,"error":"node not found"}')
                 log = open(ROOT / 'desktop-bridge.log', 'ab')
                 (ROOT / '.bridge-room').write_text(room, encoding='utf-8')
+                env = os.environ.copy()
+                if listening(9224):
+                    env['PRINTER_CDP_PORT'] = '9224'
                 bridge_process = subprocess.Popen([node, str(ROOT / 'douyin-bridge.mjs'), room], cwd=str(ROOT),
-                                 stdout=log, stderr=log,
+                                 env=env, stdout=log, stderr=log,
                                  creationflags=subprocess.CREATE_NO_WINDOW)
                 try:
                     return self._json(200, json.dumps(wait_bridge(bridge_process)))
@@ -191,7 +215,7 @@ def ensure_server():
                         break
                 if not exe:
                     return self._json(500, '{"ok":false,"error":"no browser found"}')
-                subprocess.Popen([exe, '--app=http://127.0.0.1:8080' + spath, '--window-size=' + size])
+                subprocess.Popen([exe, '--app=http://127.0.0.1:' + str(ACTIVE_PORT) + spath, '--window-size=' + size])
                 return self._json(200, '{"ok":true}')
             # Ignore validators from versions cached before no-store was enabled.
             for header in ('If-Modified-Since', 'If-None-Match'):
@@ -210,9 +234,9 @@ def ensure_server():
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(('127.0.0.1', 8080), Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', ACTIVE_PORT), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    return url, server
+    return f'http://127.0.0.1:{ACTIVE_PORT}/', server
 
 class DesktopApi:
     def __init__(self):
@@ -384,7 +408,7 @@ def main():
         width, height = sizes.get(args.scene_orient, (1280, 720))
         api = DesktopApi()
         win = webview.create_window('直播小窗 · Avatar Printer',
-            'http://127.0.0.1:8080/live-view.html', js_api=api,
+            'http://127.0.0.1:' + str(ACTIVE_PORT) + '/live-view.html', js_api=api,
             width=width, height=height, background_color='#000000', resizable=True)
         api._scene_windows.append(win)
         webview.start(gui='edgechromium', private_mode=False,

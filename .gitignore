@@ -35,3 +35,5 @@ popup-test-result.json
 .capture-compat*
 
 .cover-profile/
+.snd-profile/
+.err-check/
