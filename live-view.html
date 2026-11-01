@@ -6,24 +6,49 @@ video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
 </style></head><body>
 <div id="hint"><div>⏳ 等待主窗口直播画面…</div><div style="font-size:12px">请保持主窗口（打印台）开启且不要最小化<br><a id="fallback" href="/index.html?scene=1" style="display:none">镜像不可用？点此用独立渲染窗口打开</a></div></div>
 <video id="v" autoplay playsinline muted></video>
-<script>
+<div id="interaction" tabindex="0" aria-label="左键旋转，右键平移，滚轮缩放" style="position:fixed;touch-action:none;outline:none"></div>
+<script type="importmap">{"imports":{"three":"./assets/three.module.js"}}</script>
+<script type="module">
+import * as THREE from './assets/three.module.js';
+import {OrbitControls} from './assets/OrbitControls.js';
 // 直播小窗：只做一件事——把主窗口正在渲染的 3D 画面镜像过来给 OBS 抓取。
-// 不渲染、不打印、不参与主窗口的打印选举；信号走 BroadcastChannel（同源）。
-const bc = new BroadcastChannel('printer-scene');
+// 不渲染、不打印、不参与主窗口的打印选举；信号走本机服务，使用独立浏览器配置与进程。
+import {SceneChannel} from './scene-channel.mjs';
+const bc = new SceneChannel();
+let inputChannel=null,pendingIce=[];
+function sendControl(m){if(inputChannel?.readyState==='open')inputChannel.send(JSON.stringify(m));else bc.postMessage(m)}
 const v = document.getElementById('v'), hint = document.getElementById('hint');
+v.addEventListener('playing',()=>{try{bc.postMessage({type:'view-ready'})}catch(e){}});
 let pc = null, watchdog = 0, connected = false;
+const interaction=document.getElementById('interaction');
+const camera=new THREE.PerspectiveCamera(36,16/9,.1,500);
+const controls=new OrbitControls(camera,interaction);
+controls.enabled=false;controls.enableDamping=true;controls.maxPolarAngle=Math.PI/2-.05;controls.minDistance=3;controls.maxDistance=180;
+controls.listenToKeyEvents(interaction);
+let syncing=false,interacting=false;
+controls.addEventListener('start',()=>interacting=true);
+controls.addEventListener('end',()=>interacting=false);
+controls.addEventListener('change',()=>{if(!syncing)sendControl({type:'view-camera-change',p:camera.position.toArray(),t:controls.target.toArray()})});
+interaction.addEventListener('pointerdown',()=>interaction.focus());
+function layout(){const aspect=(v.videoWidth||1280)/(v.videoHeight||720);const w=Math.min(innerWidth,innerHeight*aspect),h=w/aspect;Object.assign(interaction.style,{width:w+'px',height:h+'px',left:(innerWidth-w)/2+'px',top:(innerHeight-h)/2+'px'});camera.aspect=aspect;camera.updateProjectionMatrix()}
+window.addEventListener('resize',layout);v.addEventListener('resize',layout);layout();
+function tick(){requestAnimationFrame(tick);if(controls.enabled)controls.update()}tick();
 
 function showHint(on) { hint.style.display = on ? 'flex' : 'none' }
 function armWatchdog() { clearTimeout(watchdog); watchdog = setTimeout(() => { if (!v.srcObject || v.readyState < 2) { connected = false; showHint(true); request() } }, 5000) }
 function request() { try { bc.postMessage({ type: 'view-request' }) } catch (e) { } }
-function teardown() { if (pc) { try { pc.close() } catch (e) { } pc = null } v.srcObject = null; connected = false }
+function teardown() { inputChannel=null; if (pc) { try { pc.close() } catch (e) { } pc = null } v.srcObject = null; connected = false }
 
 bc.onmessage = async ev => {
   const m = ev.data || {};
-  if (m.type === 'view-offer' && m.sdp) {
+  if(m.type==='view-size'&&Number.isFinite(m.width)&&Number.isFinite(m.height)){window.pywebview?.api?.resize_scene(m.width,m.height).catch(()=>{});}
+  else if(m.type==='view-camera'&&!interacting){syncing=true;const damping=controls.enableDamping;controls.enableDamping=false;controls.update();camera.position.fromArray(m.p);controls.target.fromArray(m.t);camera.fov=m.fov;camera.updateProjectionMatrix();controls.update();controls.enableDamping=damping;controls.enabled=true;syncing=false;}
+  else if (m.type === 'view-offer' && m.sdp) {
+    bc.postMessage({type:'view-camera-request'});
     try {
       teardown();
       pc = new RTCPeerConnection();
+      pc.ondatachannel=e=>{inputChannel=e.channel};
       pc.ontrack = e => {
         v.srcObject = e.streams[0];
         v.play().catch(() => { });
@@ -32,16 +57,19 @@ bc.onmessage = async ev => {
       pc.onicecandidate = e => { if (e.candidate) try { bc.postMessage({ type: 'view-ice', candidate: { candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex } }) } catch (e) { } };
       pc.onconnectionstatechange = () => { if (pc && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected')) reset() };
       await pc.setRemoteDescription(m.sdp);
+      for(const c of pendingIce.splice(0))await pc.addIceCandidate(c);
       const ans = await pc.createAnswer();
       await pc.setLocalDescription(ans);
       try { bc.postMessage({ type: 'view-answer', sdp: { type: ans.type, sdp: ans.sdp } }) } catch (e) { }
     } catch (e) { reset() }
   } else if (m.type === 'view-ice' && pc && m.candidate) {
-    try { pc.addIceCandidate(m.candidate).catch(() => { }) } catch (e) { }
+    try { pc.remoteDescription?pc.addIceCandidate(m.candidate).catch(() => { }):pendingIce.push(m.candidate) } catch (e) { }
   }
 };
 function reset() { teardown(); showHint(true); request(); armWatchdog() }
 
+let previousFrames=0,previousStatsAt=performance.now();
+setInterval(()=>{if(!connected)return;const now=performance.now(),quality=v.getVideoPlaybackQuality(),frames=quality.totalVideoFrames-quality.droppedVideoFrames;const fps=Math.max(0,Math.round((frames-previousFrames)*1000/(now-previousStatsAt)));previousFrames=frames;previousStatsAt=now;bc.postMessage({type:'view-stats',fps,width:v.videoWidth,height:v.videoHeight})},2000);
 request();
 setInterval(() => { try { bc.postMessage(connected ? { type: 'view-ping' } : { type: 'view-request' }) } catch (e) { } }, 3000);
 armWatchdog();

@@ -7,7 +7,7 @@ const code=s.slice(s.indexOf('function idleTestFill(){'),s.indexOf('function nex
 const person={name:'测试观众',avatar:'test'};const q=[];const calls=[];
 let now=1000000;const realNow=Date.now;Date.now=()=>now;
 try{
- const make=(pause,people,queueArr)=>new Function('paused','demoPeople','queue','lastLiveMsgAt','liveEvent','randomPerson',code+'return idleTestFill;')(pause,people,queueArr,1000000,(type,user,amount,label,sourceTag,markLive)=>calls.push({type,user,amount,sourceTag,markLive}),()=>person);
+ const make=(pause,people,queueArr)=>new Function('printRules','paused','demoPeople','queue','lastLiveMsgAt','liveEvent','randomPerson',code+'return idleTestFill;')({idleFill:true,idleSeconds:30},pause,people,queueArr,1000000,(type,user,amount,label,sourceTag,markLive)=>calls.push({type,user,amount,sourceTag,markLive}),()=>person);
  const fill=make(false,[person],q);
  fill();assert.equal(calls.length,0,'30秒内不补');
  now+=29999;fill();assert.equal(calls.length,0,'差1毫秒满30秒也不补');

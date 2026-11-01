@@ -30,3 +30,6 @@ live-acceptance.log
 .popup-test/
 .diag-profile/
 popup-test-result.json
+
+.output-test/
+.capture-compat*
