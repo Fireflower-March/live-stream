@@ -3,17 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>使用教程 · 志哥AI 头像打印机</title>
+<title>使用教程 · 直播互动项目框架</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#0b0e14;color:#f4f5f7;font:14px/1.9 'Microsoft YaHei',sans-serif}
-body::after{content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;opacity:.045;
- background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='170'%3E%3Ctext x='14' y='92' font-size='21' fill='%237aa6d8' font-family='Microsoft YaHei' transform='rotate(-18 14 92)'%3E%E5%BF%97%E5%93%A5AI%C2%B7%E5%BC%80%E6%BA%90%E5%85%8D%E8%B4%B9%3C/text%3E%3C/svg%3E")}
-.wm{position:fixed;right:16px;bottom:14px;z-index:9998;pointer-events:none;font:700 13px 'Microsoft YaHei';color:#9fc3e8;opacity:.62;letter-spacing:2px;background:#0b0e14d9;padding:5px 12px;border:1px solid #303642;border-radius:99px}
+
+
 header{position:sticky;top:0;z-index:10;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:14px 22px;background:#171c24ee;border-bottom:1px solid #303642;backdrop-filter:blur(6px)}
 .brand{font:700 17px 'Microsoft YaHei';letter-spacing:1px}
 .brand b{color:#67efff}
-.free{font-size:12px;font-weight:700;color:#ffe0be;background:#4a3930;border:1px solid #c99b70;border-radius:99px;padding:3px 12px}
+.license-badge{font-size:12px;font-weight:700;color:#ffe0be;background:#4a3930;border:1px solid #c99b70;border-radius:99px;padding:3px 12px}
 nav{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 nav a{color:#c8cfd8;text-decoration:none;font-size:13px;padding:6px 12px;border:1px solid #303642;border-radius:8px;background:#272e38}
 nav a:hover{color:#67efff;border-color:#67efff55}
@@ -38,107 +37,108 @@ h2.sec small{color:#67efff;font-size:13px;margin-left:10px}
 .faq p{margin:6px 0 0;color:#b9c6d6;font-size:13px}
 footer{border-top:1px solid #303642;margin-top:50px;padding:22px;text-align:center;color:#8f9bab;font-size:12px;line-height:2}
 footer b{color:#9fc3e8}
-.ad-strip{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;background:#121a26;border-bottom:1px solid #2a3547;color:#b9c6d6;font-size:13.5px;padding:10px 22px;letter-spacing:.4px}
 
 
-.ad-strip .wx{background:#0d1420;border:1px solid #3a4658;border-radius:6px;padding:5px 14px;color:#ffbc79;font:600 14px Consolas,'Courier New',monospace;cursor:pointer}.ad-strip .wx:hover{border-color:#ffbc79;color:#ffd9a8}.ad-strip .wx.copied{border-color:#67e8ff;color:#67e8ff}</style>
+
+</style>
 </head>
-<body><div class="ad-strip"><span class="zg">本程序由 志哥AI 免费开源出品</span><span>·</span><span><b>完全免费</b>，不收取任何费用</span><span>·</span><span>想要同款直播程序或定制开发？<b>600～1800 元</b>即可完整定制，加志哥本人微信：</span><button type="button" class="wx" data-wx="xfak888888899999" title="点击复制微信号">xfak888888899999</button><button type="button" class="wx" data-wx="17398730078" title="点击复制微信号">17398730078</button></div><script src="wx-copy.js"></script><div style="max-width:1100px;margin:14px auto 0;padding:14px 20px;background:#16202b;border:1px solid #2d4b6e;border-radius:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-  <img src="docs/tutorial-cover.jpg" alt="视频教程封面" style="width:150px;border-radius:6px">
-  <div style="flex:1;min-width:240px;color:#dbe6f2;font-size:14px;line-height:1.7"><b style="color:#ffbc79">🎬 视频教程（零基础入门全流程）</b><br>文字看不懂？跟着 B 站视频一步步操作即可。</div>
-  <a href="https://www.bilibili.com/video/BV1WJxx61EUf/" target="_blank" style="background:#ff6852;color:#fff;padding:11px 18px;border-radius:7px;text-decoration:none;font-weight:bold;white-space:nowrap">▶ 去 B 站观看</a>
-</div>
+<body>
 <header>
- <div class="brand"><b>▧</b> 志哥AI · 头像打印机</div>
- <span class="free">完全开源 · 免费使用</span>
+ <div class="brand"><b>▧</b> 直播互动项目框架</div>
+ <span class="license-badge">MIT 开源项目</span>
  <nav>
   <a href="./features.html">功能介绍</a>
   <a class="on" href="./guide.html">使用教程</a>
-  <a href="./index.html">打开打印台</a>
+  <a href="/projects/avatar-printer/index.html">打开打印台</a>
  </nav>
 </header>
 
 <main>
  <div class="hero">
-  <h1>从零开始，<b>5 步用起来</b></h1>
-  <p>适用于 Windows 10 / 11。全程只需配置一次，之后每天开播双击一个文件即可。</p>
-  <div class="notice"><b>开源免费：</b>本软件完全开源、免费使用，无任何付费功能或授权限制。使用中请遵守抖音平台规则：软件只读取公开弹幕，不会用你的账号发弹幕、送礼或关注任何人。</div>
+  <h1>抖音直播伴侣，<b>5 步接好画面</b></h1>
+  <p>适用于 Windows 10 / 11。头像打印机生成画面和声音，抖音直播伴侣负责采集并开播推流。「开始抓取」只连接直播互动，不会开播。</p>
+  <div class="notice"><b>使用说明：</b>本框架通过独立项目呈现直播互动。数据桥读取公开互动信息，登录由用户完成，程序不会代发弹幕、送礼或关注。使用与分发条款见 <a href="/LICENSE" style="color:#67efff">MIT 许可证</a>。</div>
  </div>
 
  <div class="step"><div class="num">0</div><div>
   <h3>环境准备（只做一次）</h3>
   <ul>
-   <li>安装 <b>Python 3</b>（官网下载，安装时勾选 <code>Add to PATH</code>），然后命令行执行 <code>pip install pywebview</code></li>
-   <li><b>WebView2 Runtime</b>：Windows 11 自带；Win10 若缺失，去微软官网装一次</li>
-   <li>安装 <b>Node.js</b>（官网 LTS 安装包，一直下一步即可）</li>
-   <li>把软件文件夹放到任意位置，例如 <code>D:\SU\310\5</code></li>
+   <li>安装 <b>Python 3</b>（安装时勾选 <code>Add to PATH</code>），然后在项目文件夹中双击 <code>setup.bat</code>，自动创建本地环境并安装依赖；首次安装需要联网</li>
+   <li>确认已安装 <b>Microsoft Edge WebView2 Runtime</b>，缺失时从微软官网安装</li>
+   <li>安装 <b>Node.js 22 或更新版本</b>，并准备好已登录、可使用开播功能的<a href="https://streamingtool.douyin.com/" target="_blank" rel="noopener" style="color:#67efff">抖音直播伴侣</a></li>
+   <li>项目文件夹可以放在本机常用位置；启动脚本会优先使用文件夹中的 <code>.venv</code> 环境</li>
   </ul></div></div>
 
  <div class="step"><div class="num">1</div><div>
-  <h3>一键启动</h3>
+  <h3>启动打印台，先看演示</h3>
   <ul>
-   <li>双击 <code>start-all.bat</code>：自动启动打印服务 + 弹出「直播间窗口」+ 打开「头像打印程序」，两个窗口并排</li>
-   <li>也可以分开启动：<code>start.bat</code>（打印服务）+ <code>start-bridge.bat</code>（数据桥）</li>
-   <li>想固定房间号启动：命令行执行 <code>pythonw launch.py --room 房间号 --capture</code>，开播即自动抓取</li>
+   <li>双击 <code>start.bat</code> 打开项目中心，选择「头像打印机」进入打印台；<code>start-all.bat</code> 是相同入口，也可用 <code>start.bat --project avatar-printer</code> 直接打开打印台</li>
+   <li>暂时不用连接直播间。确认演示头像能逐层打印、出分，再由机械臂送到传送带</li>
+   <li>需要连续预览时，在「打印规则 → 自动演示」中将补位间隔设为 3 秒或 5 秒；连接真实数据桥后，自动演示会关闭</li>
   </ul></div></div>
 
  <div class="step"><div class="num">2</div><div>
-  <h3>登录抖音（只需一次）</h3>
+  <h3>设置输出，打开直播小窗</h3>
   <ul>
-   <li>在弹出的「直播间窗口」里扫码/验证登录抖音，登录状态会记住，下次免登录</li>
-   <li><span class="tip">登录后头像抓取更全</span>：可以抓到更完整的观众资料卡头像</li>
+   <li>在「高级画质设置」中选择方向：竖屏 <code>720×1280</code> / <code>1080×1920</code>，横屏 <code>1280×720</code> / <code>1920×1080</code></li>
+   <li>首次可用标准画质、30 FPS。点击「<span class="tip">弹出画面</span>」，得到标题为 <code>直播小窗 · Avatar Printer</code> 的纯画面窗口</li>
+   <li>小窗镜像主窗口的打印画面，主窗口仍负责渲染、打印和声音。<span class="tip">主窗口和直播小窗都保持开启，不要最小化</span>；弹出后主窗口收起现场预览属于正常现象</li>
   </ul></div></div>
 
  <div class="step"><div class="num">3</div><div>
-  <h3>连接直播间，开始抓取</h3>
+  <h3>直播伴侣采集画面和声音</h3>
   <ul>
-   <li>在打印程序右侧「直播连接」面板填<span class="tip">直播间号或整条链接</span>，回车或点「切换」</li>
-   <li>点「开始抓取」，抓取状态显示 <code>● 正常 · 弹幕…</code> 即成功</li>
-   <li>右上角亮起「● 直播数据 · 数据桥已连接 · 房间号」</li>
+   <li>在直播伴侣的素材添加入口选择「<span class="tip">窗口捕获</span>」（部分版本显示「窗口」），选中 <code>直播小窗 · Avatar Printer</code>。将素材按比例放到对应横屏或竖屏画布，确认预览只有打印画面</li>
+   <li>入口名称、位置可能随版本变化，操作可参考<a href="https://streamingtool.douyin.com/docs/guide_window" target="_blank" rel="noopener" style="color:#67efff">直播伴侣官方窗口捕获指南</a>，无需额外配置推流地址</li>
+   <li>回到主打印台点击「开启声音」并调整音量。<span class="tip">小窗视频是静音镜像，打印音效和播报来自主程序</span></li>
+   <li>直播伴侣的扬声器采集选择主程序正在使用的输出设备，确认音量条跳动；如版本支持单独应用音频，选择主打印台而非小窗。对应采集原理见<a href="https://streamingtool.douyin.com/docs/guide_4beqpl4o" target="_blank" rel="noopener" style="color:#67efff">官方音频说明</a></li>
+   <li>需要口播时再开启麦克风；相同声音只采集一次。将直播间登录窗口静音，避免把自己直播的延迟声音再次播出去</li>
   </ul></div></div>
 
  <div class="step"><div class="num">4</div><div>
-  <h3>看打印效果</h3>
+  <h3>自己开播，再连接自己的直播间</h3>
   <ul>
-   <li>观众评论 / 点赞 / 送礼 → 打印机自动打印 TA 的头像：逐层打印 → 出分 → 机械臂转运到传送带</li>
-   <li>连续 30 秒没人说话时，会自动补一张测试头像让画面不冷场；真实消息一到立刻恢复真人优先</li>
-   <li>右侧面板可看打印队列、打印记录（昵称/头像/触发方式/分数/时间）</li>
+   <li>画面与声音预览确认后，由你在直播伴侣中点击开始直播。相关界面见<a href="https://streamingtool.douyin.com/docs/guide_live" target="_blank" rel="noopener" style="color:#67efff">官方开播指南</a></li>
+   <li>回到打印台右侧「直播连接」，填写<span class="tip">自己的数字房间号或完整 live.douyin.com 直播链接</span>，点击「打开直播间窗口」</li>
+   <li>在本程序打开的登录窗口中扫码/完成验证，确认已进入自己的直播间，再点击打印台的「开始抓取」；直播伴侣和这里的登录状态相互独立</li>
+   <li>等待直播数据桥已连接。之后观众的新互动按打印规则进入队列，连接前的历史弹幕不会补打印</li>
   </ul></div></div>
 
  <div class="step"><div class="num">5</div><div>
-  <h3>用到直播画面里</h3>
+  <h3>核对互动和观众端效果</h3>
   <ul>
-   <li>打印画面点「<span class="tip">弹出直播窗口</span>」，得到 1080×1920 竖屏独立窗口</li>
-   <li>OBS 里添加「窗口采集」，选中这个竖屏窗口，即可作为直播间画面源</li>
-   <li>想展示全景控制台，直接采集打印程序主窗口也可以</li>
+   <li>收到一条新评论后，查看打印台计数、队列和打印记录，再核对直播伴侣预览及手机观众端的画面、声音</li>
+   <li>默认评论和礼物会打印，进场 / 点赞 / 关注打印默认关闭；需要时在「打印规则」中打开，并调整每次张数、大小和语音</li>
+   <li>直播时「无互动时补测试头像」默认关闭，可单独开启并设置等待时间；它与断开数据桥时的自动演示是两项设置</li>
+   <li>结束时先在直播伴侣停止直播，再关闭打印台。关闭打印台会清理它启动的小窗、登录窗口和数据桥，<span class="tip">不会替你停止直播伴侣推流</span></li>
   </ul></div></div>
 
  <h2 class="sec">常用操作 <small>TIPS</small></h2>
  <div class="grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
   <div class="faq"><b>视角与镜头</b><p>画面里按住拖动即可转动视角；「＋保存当前视角」最多存 10 个命名镜头；随手拖动的机位会自动记忆，刷新不丢；「初始视角」一键回位。</p></div>
-  <div class="faq"><b>画质与状态牌</b><p>画质四档：标准 / 2×精细 / 4×超清 / 8×影院，选择自动记忆；「状态牌」按钮可显示/隐藏画面上的打印状态牌。</p></div>
+  <div class="faq"><b>画质与状态牌</b><p>高级画质设置提供低 / 标准 / 高 / 超高预设、抗锯齿、目标帧率和流畅优先。输出分辨率单独设置，内部渲染倍率不代表输出尺寸成倍增加；「状态牌」可显示/隐藏打印状态。</p></div>
   <div class="faq"><b>暂停 / 跳过 / 速度</b><p>「暂停打印」同时冻结打印和流水线；「跳过当前」只丢弃正在打印的这件；演示速度 1× / 4× / 12× 可加速验收。</p></div>
-  <div class="faq"><b>切换直播间</b><p>在「直播连接」面板填新房间号或链接回车即可，数据桥自动切换并记住；无需重启程序。</p></div>
+  <div class="faq"><b>切换直播间</b><p>在「直播连接」填新房间号，重新打开对应直播间窗口、确认登录后开始抓取，数据桥会跟随房间设置。</p></div>
   <div class="faq"><b>批量导入头像</b><p>规则演示台里「批量导入头像」可选本地图片，替换演示头像池，仅本机使用不上传。</p></div>
-  <div class="faq"><b>关闭程序</b><p>直接关闭打印程序主窗口即可：程序会自动停止抓取、清理数据桥和它打开的直播窗口。</p></div>
+  <div class="faq"><b>礼物优先插队</b><p>开启后会立即切换到礼物打印，未完成的普通任务保留到礼物之后重新打印；礼物之间按收到的先后顺序处理。关闭此选项则按普通队列顺序打印。</p></div>
  </div>
 
  <h2 class="sec">常见问题 <small>FAQ</small></h2>
- <div class="faq"><b>双击后页面打不开 / 提示 8080 被占用？</b><p>说明打印服务端口被其他程序占用。关掉占用 8080 的程序（或重启电脑）后再双击 start-all.bat。</p></div>
+ <div class="faq"><b>双击后窗口打不开？</b><p>先查看启动窗口的报错，确认已运行 setup.bat 安装依赖，并已安装 WebView2 Runtime。服务会自动尝试空闲端口；全部备用端口都被占用时，关闭旧的打印程序或本地服务后重试。不要直接双击 HTML 文件。</p></div>
+ <div class="faq"><b>直播伴侣捕获黑屏 / 选到控制台？</b><p>先保持主窗口和小窗开启、不要最小化，在直播伴侣中重新选择「直播小窗 · Avatar Printer」，旧素材也要重新选窗口。仍黑屏时，可在打印台高级画质设置中点击「开启捕获兼容模式并重启」，之后重开小窗并重新采集；兼容模式会增加 CPU 开销，可降低画质与帧率。</p></div>
+ <div class="faq"><b>小窗一直显示等待主窗口画面？</b><p>确认主打印台仍在运行且没有最小化。先关闭小窗再从主窗口点击「弹出画面」重开；不要从另一个端口或另一份项目打开小窗。</p></div>
  <div class="faq"><b>点「开始抓取」提示端口 8765 被占用？</b><p>有旧的数据桥还在运行。按提示关闭旧版 ServerGuard / BridgeGuard / 旧数据桥窗口，再重新开始抓取。</p></div>
  <div class="faq"><b>抓取状态一直是「等待直播动态」？</b><p>直播间窗口还没登录或没进入直播间。先在直播窗口完成登录并进入房间，再点开始抓取。</p></div>
  <div class="faq"><b>有些观众显示彩色首字而不是照片头像？</b><p>TA 的头像暂时没抓到（比如已滚出屏幕）。软件会自动多轮点击资料卡补取，观众多发几条评论通常就能抓到真实头像。</p></div>
- <div class="faq"><b>30 秒没人说话，打印机还在打印？</b><p>这是「冷场保护」：自动补测试头像让画面不空转。有真实观众消息时立刻恢复真人优先，测试头像自动让位。</p></div>
- <div class="faq"><b>没有声音？</b><p>浏览器策略要求先有交互：点击页面任意位置即可；桌面版窗口默认允许声音。检查系统音量与输出设备。</p></div>
+ <div class="faq"><b>直播间没人发消息也在打印？</b><p>未连接数据桥时，自动演示按设置的间隔补位；直播连接后自动演示关闭。若仍补测试头像，检查「无互动时补测试头像」是否开启，以及数据桥是否已断开。</p></div>
+ <div class="faq"><b>自己能听到，观众听不到声音？</b><p>直播小窗本身静音，声音在主打印台。先点「开启声音」，再确认直播伴侣扬声器采集的设备与主程序输出设备一致、采集未静音且音量条跳动。避免同一声音被系统采集、应用采集或声卡重复混入。</p></div>
  <div class="faq"><b>分数是真实的吗？</b><p>不是。评分为 60–95 的娱乐随机分，不同分数段对应不同打印材质（胡桃木/拉丝铝/石材/陶瓷等），仅作直播互动效果。</p></div>
- <div class="faq"><b>会被抖音封号吗？</b><p>软件只读取直播间公开弹幕与公开头像，不登录、不发弹幕、不点赞、不送礼，不做任何写操作，与观众自己观看直播无异。请勿将其用于任何违法违规用途。</p></div>
+ <div class="faq"><b>登录和账号操作</b><p>登录由你在本程序打开的抖音直播间窗口中完成，程序不代发弹幕、不点赞、不送礼。使用公开互动数据时请遵守平台规则；直播权限和账号状态以抖音显示为准。</p></div>
 
  <footer>
-  <b>志哥AI</b> 出品 · 头像打印机 AVATAR PRINT STUDIO<br>
-  本软件完全开源、免费使用 · 可自由使用、修改与分享<br>
-  <a href="./features.html" style="color:#67efff">查看全部功能介绍 →</a>
+  直播互动项目框架 · 使用教程<br>
+  <a href="/projects/avatar-printer/features.html" style="color:#67efff">查看头像打印项目功能 →</a> · <a href="/LICENSE" style="color:#67efff">MIT 许可证</a>
  </footer>
 </main>
-<div class="wm">志哥AI</div>
 </body>
 </html>

@@ -15,6 +15,8 @@ from scene_relay import SceneRelay
 from urllib.parse import urlparse, parse_qs
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from framework.project_registry import (DEFAULT_PROJECT, discover_projects,
+    get_project, scene_view_url, project_from_scene_path)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -59,25 +61,19 @@ def wait_bridge(process):
 
 
 ACTIVE_PORT = 8080
+SERVER_PORTS = (8080, 8081, 8181, 8088, 8090, 8095, 8282, 8388)
 
 def ensure_server():
     global ACTIVE_PORT
-    # 8080 被代理等程序占用时自动换备用端口（8081/8181/8088）。
-    for port in (8080, 8081, 8181, 8088, 8090, 8095, 8282, 8388):
-        if not listening(port):
-            ACTIVE_PORT = port
-            break
-        try:
-            with local_get(f'http://127.0.0.1:{port}/', 3) as response:
-                if 'AVATAR PRINT STUDIO' in response.read(100000).decode('utf-8', errors='replace'):
-                    ACTIVE_PORT = port
-                    return f'http://127.0.0.1:{port}/', None
-        except Exception:
-            pass
-    ACTIVE_PORT = 8081
-    relay = SceneRelay()
+    relays = {}
     bridge_process = None
+    def project_relay(project_id):
+        project = get_project(project_id, ROOT)
+        return relays.setdefault(project['id'], SceneRelay())
     class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(ROOT), **kwargs)
+
         def end_headers(self):
             # Ctrl+R must load edited local pages and their scripts immediately.
             self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
@@ -88,7 +84,7 @@ def ensure_server():
         # 叠加一个本地控制端点：让浏览器页面也能拉起“独立应用窗口”（无浏览器界面）。
         def _guard(self):
             # 只允许本机页面调用（防其它网站借用本地服务拉进程）。
-            if not str(self.headers.get('Host', '')).startswith('127.0.0.1:' + str(ACTIVE_PORT)):
+            if self.headers.get('Host', '') != '127.0.0.1:' + str(ACTIVE_PORT):
                 return False
             return self.headers.get('Sec-Fetch-Site', '') == 'same-origin'
 
@@ -117,13 +113,19 @@ def ensure_server():
                 if not 0 < length <= 65536:
                     raise ValueError('bad length')
                 body = json.loads(self.rfile.read(length))
-                relay.publish(body['client'], body['message'])
+                if not isinstance(body, dict):
+                    raise ValueError('bad message')
+                project_relay(body.get('project', DEFAULT_PROJECT)).publish(body['client'], body['message'])
                 return self._json(200, '{"ok":true}')
             except (ValueError, KeyError, TypeError):
                 return self._json(400, '{"error":"invalid message"}')
 
         def do_GET(self):
             nonlocal bridge_process
+            if self.path == '/__framework-status':
+                return self._json(200, json.dumps({'service': 'live-project-framework', 'identity': str(ROOT)}))
+            if self.path == '/__projects':
+                return self._json(200, json.dumps(discover_projects(ROOT), ensure_ascii=False))
             if self.path == '/__bridge-status':
                 if not self._guard():
                     return self._json(403, '{"ok":false}')
@@ -135,7 +137,8 @@ def ensure_server():
                     query = parse_qs(urlparse(self.path).query)
                     client = query['client'][0]
                     after = int(query['after'][0]) if 'after' in query else None
-                    return self._json(200, json.dumps(relay.poll(client, after)))
+                    project = (query.get('project') or [DEFAULT_PROJECT])[0]
+                    return self._json(200, json.dumps(project_relay(project).poll(client, after)))
                 except (ValueError, KeyError):
                     return self._json(400, '{"error":"invalid cursor"}')
             if self.path.startswith('/__open-live'):
@@ -203,7 +206,10 @@ def ensure_server():
                          'portrait': (720, 1280), 'portrait-1080p': (1080, 1920)}
                 w, h = sizes.get(orient, (1280, 720))
                 size = f'{w},{h}'
-                if not re.fullmatch(r'/[A-Za-z0-9_\-]+\.html\?scene=1', spath):
+                try:
+                    project = project_from_scene_path(spath, root=ROOT)
+                    spath = scene_view_url(project['id'], ROOT)
+                except ValueError:
                     return self._json(400, '{"ok":false,"error":"bad path"}')
                 exe = None
                 for c in (r'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe',
@@ -234,12 +240,34 @@ def ensure_server():
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(('127.0.0.1', ACTIVE_PORT), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return f'http://127.0.0.1:{ACTIVE_PORT}/', server
+    # Reuse this app's existing server, or bind the first available fallback.
+    # Binding can still fail after the probe if another process claims the port.
+    last_error = None
+    for port in SERVER_PORTS:
+        if listening(port):
+            try:
+                with local_get(f'http://127.0.0.1:{port}/__framework-status', 3) as response:
+                    status = json.load(response)
+                    if (status.get('service') == 'live-project-framework'
+                            and os.path.normcase(status.get('identity', '')) == os.path.normcase(str(ROOT))):
+                        ACTIVE_PORT = port
+                        return f'http://127.0.0.1:{port}/', None
+            except Exception:
+                pass
+            continue
+        try:
+            server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+        except OSError as exc:
+            last_error = exc
+            continue
+        ACTIVE_PORT = port
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return f'http://127.0.0.1:{port}/', server
+    ports = '、'.join(map(str, SERVER_PORTS))
+    raise RuntimeError(f'本地服务启动失败：端口 {ports} 均被占用或不可用，请关闭旧程序后重试。') from last_error
 
 class DesktopApi:
-    def __init__(self):
+    def __init__(self, project_id=None):
         self._live = None
         self._bridge = None
         self._room = None
@@ -247,6 +275,21 @@ class DesktopApi:
         self._scene_process = None
         self._lock = threading.RLock()
         self._restart_requested = False
+        self._project = get_project(project_id, ROOT)['id'] if project_id else None
+
+    def _close_scene(self):
+        if self._scene_process and self._scene_process.poll() is None:
+            self._scene_process.terminate()
+            self._scene_process.wait(timeout=5)
+        self._scene_process = None
+
+    def open_project(self, project_id=None):
+        project = get_project(project_id, ROOT) if project_id else None
+        with self._lock:
+            if (project['id'] if project else None) != self._project:
+                self._close_scene()
+            self._project = project['id'] if project else None
+        return 'http://127.0.0.1:' + str(ACTIVE_PORT) + (project['entry'] if project else '/')
 
     def restart_program(self):
         with self._lock:
@@ -292,6 +335,10 @@ class DesktopApi:
         return '已保存 PNG：' + str(path)
 
     def open_scene_window(self, path=None, orient='landscape'):
+        project = project_from_scene_path(path, self._project or DEFAULT_PROJECT, ROOT)
+        if self._project != project['id']:
+            self._close_scene()
+            self._project = project['id']
         if orient not in {'landscape','landscape-1080p','portrait','portrait-1080p'}:
             orient = 'landscape'
 
@@ -301,7 +348,8 @@ class DesktopApi:
             return '直播小窗已在独立进程运行，请从任务栏切换到直播小窗。'
         self._scene_process = subprocess.Popen(
             [sys.executable, str(ROOT / 'launch.py'), '--scene-view',
-             '--scene-orient', orient], cwd=ROOT)
+             '--scene-orient', orient, '--server-port', str(ACTIVE_PORT),
+             '--project', project['id']], cwd=ROOT)
         return '已打开独立进程直播小窗，请重新选择捕获窗口。'
 
 
@@ -374,15 +422,14 @@ class DesktopApi:
             return '抓取已停止 / Capture stopped.'
 
     def close(self):
-        if self._scene_process and self._scene_process.poll() is None:
-            self._scene_process.terminate()
-            self._scene_process.wait(timeout=5)
+        self._close_scene()
         self.stop_capture()
         if self._live and self._live.poll() is None:
             self._live.terminate()
             self._live.wait(timeout=5)
 
 def main():
+    global ACTIVE_PORT
     # Keep the rendering window active when the detached view is in front.
     browser_flags = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
     os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = browser_flags + (
@@ -400,15 +447,29 @@ def main():
     parser.add_argument('--capture', action='store_true')
     parser.add_argument('--scene-view', action='store_true')
     parser.add_argument('--scene-orient', default='landscape')
+    parser.add_argument('--server-port', type=int, default=8080)
+    parser.add_argument('--project', help='直接打开 projects 目录下指定的项目 id')
+    parser.add_argument('--list-projects', action='store_true', help='列出可用项目后退出')
     args = parser.parse_args()
+    if args.list_projects:
+        print(json.dumps(discover_projects(ROOT), ensure_ascii=False, indent=2))
+        return
+    try:
+        selected_project = get_project(args.project, ROOT) if args.project else None
+    except ValueError as exc:
+        parser.error(str(exc))
+    if not 1 <= args.server_port <= 65535:
+        parser.error('--server-port 必须为 1 到 65535 之间的端口号')
     if args.scene_view:
+        ACTIVE_PORT = args.server_port
+        project = selected_project or get_project(DEFAULT_PROJECT, ROOT)
         import webview
         sizes = {'landscape': (1280, 720), 'landscape-1080p': (1920, 1080),
                  'portrait': (720, 1280), 'portrait-1080p': (1080, 1920)}
         width, height = sizes.get(args.scene_orient, (1280, 720))
-        api = DesktopApi()
-        win = webview.create_window('直播小窗 · Avatar Printer',
-            'http://127.0.0.1:' + str(ACTIVE_PORT) + '/live-view.html', js_api=api,
+        api = DesktopApi(project['id'])
+        win = webview.create_window(project['viewerTitle'],
+            'http://127.0.0.1:' + str(ACTIVE_PORT) + scene_view_url(project['id'], ROOT), js_api=api,
             width=width, height=height, background_color='#000000', resizable=True)
         api._scene_windows.append(win)
         webview.start(gui='edgechromium', private_mode=False,
@@ -422,13 +483,16 @@ def main():
         webview.start(gui='edgechromium', private_mode=False, storage_path=str(ROOT / '.live-webview-profile'))
         return
     url, server = ensure_server()
-    api = DesktopApi()
+    print('本地服务地址：' + url, flush=True)
+    api = DesktopApi(selected_project['id'] if selected_project else None)
     try:
         if args.server_only:
             threading.Event().wait()
         else:
             import webview
-            webview.create_window('头像打印机 · 桌面版', url, js_api=api, width=1380, height=860,
+            page_url = url.rstrip('/') + selected_project['entry'] if selected_project else url
+            title = selected_project['name'] + ' · 桌面版' if selected_project else '直播项目中心'
+            webview.create_window(title, page_url, js_api=api, width=1380, height=860,
                 min_size=(900, 650), background_color='#0b0e14')
             def start_requested_room():
                 if not args.room:
@@ -457,6 +521,8 @@ def main():
             server.server_close()
         if api._restart_requested:
             restart_args = [sys.executable, str(ROOT / 'launch.py')]
+            if api._project:
+                restart_args += ['--project', api._project]
             if api._room:
                 restart_args += ['--room', api._room]
             subprocess.Popen(restart_args, cwd=ROOT)

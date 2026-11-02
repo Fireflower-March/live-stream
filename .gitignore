@@ -8,6 +8,8 @@
 *.log
 .bridge-room
 __pycache__/
+.venv/
+.runtime-tmp/
 
 # ===== 内部验收记录（含真实观众昵称与头像链接）=====
 avatar-acceptance.json

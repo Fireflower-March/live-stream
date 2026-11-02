@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="live-project-id" content="starter">
+  <title>互动项目模板 · LIVE STUDIO</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><a id="home" href="/">← 项目中心</a><span>PROJECT / STARTER</span><b id="status">本地演示</b></header>
+  <main>
+    <section class="intro"><p class="eyebrow">独立项目模板</p><h1>把直播互动，变成你的玩法。</h1><p>这是与头像打印机独立的二维演示。页面、规则和设置均归本项目所有，直播连接和画面输出由公共框架提供。</p></section>
+    <div class="layout">
+      <section class="panel preview"><canvas id="output" width="720" height="1280" aria-label="互动项目输出画面"></canvas><div class="toolbar"><button id="popout">弹出画面</button><label>输出 <select id="orientation"><option value="portrait">竖屏 720×1280</option><option value="portrait-1080p">竖屏 1080×1920</option><option value="landscape">横屏 1280×720</option><option value="landscape-1080p">横屏 1920×1080</option></select></label><label>帧率 <select id="fps"><option>30</option><option>60</option></select></label><small id="output-status">等待打开直播小窗</small></div></section>
+      <aside>
+        <section class="panel"><h2>模拟互动</h2><p>无需开播即可验证事件到画面的完整链路。</p><div class="actions"><button data-demo="comment">一条评论</button><button data-demo="like">一次点赞</button><button data-demo="gift">一个礼物</button></div></section>
+        <section class="panel"><h2>真实直播连接</h2><label for="room">自己的直播间号或完整链接</label><input id="room" placeholder="https://live.douyin.com/…"><div class="actions"><button id="open-room">打开直播间窗口</button><button id="start-capture">开始抓取</button><button id="stop-capture" class="secondary">停止抓取</button></div><p id="host-status" role="status">开播后再连接；登录由你本人完成，直播间播放器请静音。</p></section>
+        <section class="panel"><h2>最近事件</h2><ol id="events"><li>等待演示或真实直播事件</li></ol></section>
+      </aside>
+    </div>
+  </main>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>

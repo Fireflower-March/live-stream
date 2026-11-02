@@ -1,0 +1,15 @@
+{
+  "id": "avatar-printer",
+  "name": "头像打印机",
+  "description": "现有中英文头像打印玩法，包含打印队列、机械臂、礼物优先和语音播报。",
+  "entry": "index.html",
+  "entries": {
+    "zh": "index.html",
+    "en": "index-en.html"
+  },
+  "viewerTitle": "直播小窗 · Avatar Printer",
+  "output": {
+    "mode": "mirror",
+    "camera": true
+  }
+}

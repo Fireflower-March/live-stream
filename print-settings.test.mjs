@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DemoRules} from './demo-rules.mjs';
-import {PRINT_DEFAULTS,printOptions} from './print-settings.mjs';
+import {DemoRules} from './projects/avatar-printer/demo-rules.mjs';
+import {PRINT_DEFAULTS,printOptions} from './projects/avatar-printer/print-settings.mjs';
 test('评论自定义数量与大小对新任务生效',()=>{
  const r=new DemoRules();const settings={...PRINT_DEFAULTS,commentCount:3,commentSize:'large'};
  r.event('like',{name:'观众'},'comment',1,printOptions(settings,'like','评论'));

@@ -1,5 +1,5 @@
 import fs from 'node:fs';import assert from 'node:assert/strict';
-const s=fs.readFileSync('index.html','utf8');const code=s.slice(s.indexOf('function replenishDemo(force){'),s.indexOf('function next(){'));const q=[];const f=new Function('autoDemo','paused','busy','queue','demoPeople','randomPerson','renderQueue','updateScreen','lastDemoFill','printRules',code+';return replenishDemo;');const person={name:'测试',avatar:'test'};const mk=(auto,pause,busy,lastFill,rules)=>f(auto,pause,busy,q,[person],()=>person,()=>{},()=>{},lastFill,Object.assign({demoGapMs:30000},rules));
+const s=fs.readFileSync('projects/avatar-printer/index.html','utf8');const code=s.slice(s.indexOf('function replenishDemo(force){'),s.indexOf('function next(){'));const q=[];const f=new Function('autoDemo','paused','busy','queue','demoPeople','randomPerson','renderQueue','updateScreen','lastDemoFill','printRules',code+';return replenishDemo;');const person={name:'测试',avatar:'test'};const mk=(auto,pause,busy,lastFill,rules)=>f(auto,pause,busy,q,[person],()=>person,()=>{},()=>{},lastFill,Object.assign({demoGapMs:30000},rules));
 q.length=0;mk(true,false,false,Date.now())();assert.equal(q.length,0,'30 秒内不重复补位');
 mk(true,false,false,Date.now()-31000)();assert.equal(q.length,1,'超过间隔补一个');
 q.length=0;mk(true,false,false,Date.now())(true);assert.equal(q.length,1,'force 立刻补位（30 秒内也强制）');

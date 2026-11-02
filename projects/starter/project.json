@@ -1,0 +1,14 @@
+{
+  "id": "starter",
+  "name": "互动项目模板",
+  "description": "独立的 2D 事件演示项目，用于验证直播接入、项目隔离和纯画面输出，可复制后开发新玩法。",
+  "entry": "index.html",
+  "entries": {
+    "zh": "index.html"
+  },
+  "viewerTitle": "直播小窗 · 互动项目模板",
+  "output": {
+    "mode": "mirror",
+    "camera": false
+  }
+}

@@ -1,0 +1,2 @@
+# Windows desktop host (includes pythonnet and the WebView2 integration).
+pywebview==6.2.1

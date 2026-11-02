@@ -1,6 +1,6 @@
 # Generated asset prompts
 
-Mode: built-in image_gen. All PNG files are original generated outputs copied into this project.
+These notes record the image-generation prompts and source workflow retained with the project. They are not a separate license or authorization record for input/reference images. The avatar atlas entry below includes screenshot-derived inputs.
 
 ## home.png
 

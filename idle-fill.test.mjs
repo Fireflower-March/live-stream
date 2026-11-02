@@ -1,7 +1,8 @@
 import fs from 'node:fs';import assert from 'node:assert/strict';
-const s=fs.readFileSync('index.html','utf8');
+const s=fs.readFileSync('projects/avatar-printer/index.html','utf8');
 assert.ok(s.includes("if(type==='comment'||type==='like'||type==='gift'||type==='follow'||type==='join')lastLiveMsgAt=Date.now()"),'真实观众消息(评论/点赞/礼物/关注/进场)应重置30秒计时');
-assert.ok(s.includes('socket.onopen=()=>{lastLiveMsgAt=Date.now();'),'连接数据桥应重置30秒计时');
+const connected=s.slice(s.indexOf('onopen:()=>{'),s.indexOf('onmessage:message=>add(message)'));
+assert.ok(connected.includes('lastLiveMsgAt=Date.now();'),'连接数据桥应重置30秒计时');
 assert.ok(s.includes('setInterval(idleTestFill,1000);'),'应每秒检查一次空闲填充');
 const code=s.slice(s.indexOf('function idleTestFill(){'),s.indexOf('function next(){'));
 const person={name:'测试观众',avatar:'test'};const q=[];const calls=[];

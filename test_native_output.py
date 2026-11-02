@@ -1,16 +1,25 @@
 """Native WebView2 integration check. Run with the production app closed."""
-import sys, os, time, json, subprocess, base64, tempfile
+import sys, os, time, json, subprocess, base64, tempfile, argparse
 from pathlib import Path
+from urllib.parse import urlparse
 import webview
 from launch import ensure_server, ROOT
 os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS']='--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling'
 OUT=ROOT/'.output-test';OUT.mkdir(exist_ok=True)
-viewer='--viewer' in sys.argv
-url='http://127.0.0.1:8080/' + ('live-view.html' if viewer else 'index.html')
+parser=argparse.ArgumentParser()
+parser.add_argument('--viewer',action='store_true')
+parser.add_argument('--server-port',type=int)
+args=parser.parse_args()
+viewer=args.viewer
 server=None
-if not viewer:
+if viewer:
+    if args.server_port is None or not 1<=args.server_port<=65535:
+        parser.error('--viewer requires the main process --server-port')
+    base_url=f'http://127.0.0.1:{args.server_port}/'
+else:
     for name in ['viewer.json','portrait.json','resize.request','main.json','viewer-error.json']:(OUT/name).unlink(missing_ok=True)
-    _,server=ensure_server()
+    base_url,server=ensure_server()
+url=base_url + ('framework/web/live-view.html?project=avatar-printer' if viewer else 'projects/avatar-printer/index.html')
 window=webview.create_window('Output integration '+('viewer' if viewer else 'main'),url,width=1000,height=750)
 results=[]
 failed=False
@@ -49,6 +58,8 @@ def run():
             time.sleep(5)
             after=evaluate("document.querySelector('video').getVideoPlaybackQuality().totalVideoFrames")
             assert after>before,'Portrait video froze'
+            image=evaluate("(()=>{const v=document.querySelector('video'),c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);return c.toDataURL('image/png')})()")
+            (OUT/'portrait-frame.png').write_bytes(base64.b64decode(image.split(',')[1]))
             (OUT/'portrait.json').write_text(json.dumps({'width':1080,'height':1920,'framesOverFiveSeconds':after-before}))
             time.sleep(15)
         else:
@@ -63,7 +74,7 @@ def run():
                 assert state['internal'][0]<=2560,state
                 results.append(state)
             evaluate("(()=>{const s=document.querySelector('#visual-preset');s.value='high';s.dispatchEvent(new Event('change'))})()")
-            child=subprocess.Popen([sys.executable,__file__,'--viewer'],cwd=ROOT)
+            child=subprocess.Popen([sys.executable,__file__,'--viewer','--server-port',str(urlparse(base_url).port)],cwd=ROOT)
             wait("window.printerDiagnostics().connected==='connected'",50)
             time.sleep(12)
             assert (OUT/'viewer.json').exists(),'Viewer did not produce report'
@@ -89,6 +100,8 @@ def run():
         if child:child.terminate()
         window.destroy()
 webview.start(run,gui='edgechromium',private_mode=False,storage_path=tempfile.mkdtemp(prefix='printer-output-'+('viewer' if viewer else 'main')))
-if server:server.shutdown()
+if server:
+    server.shutdown()
+    server.server_close()
 
 sys.exit(1 if failed else 0)

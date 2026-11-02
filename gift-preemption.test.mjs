@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-for(const file of ['index.html','index-en.html']){
+for(const file of ['projects/avatar-printer/index.html','projects/avatar-printer/index-en.html']){
  const code=fs.readFileSync(file,'utf8').split('function preemptForGift(){')[1].split('function next(){')[0];
  function run(phase,priority=false,paused=false){
   const product={factor:1,g:{rotation:{set(){}},position:{set(){}}}};

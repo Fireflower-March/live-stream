@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
 const PORT = 9226;
-const BASE = 'http://127.0.0.1:8080';
+const BASE = 'http://127.0.0.1:8080/projects/avatar-printer';
 const results = [];
 const ok = (name, cond, detail = '') => { results.push([cond ? 'PASS' : 'FAIL', name, detail]); console.log((cond ? '✅' : '❌') + ' ' + name + (detail ? ' —— ' + detail : '')) };
 const sleep = ms => new Promise(r => setTimeout(r, ms));

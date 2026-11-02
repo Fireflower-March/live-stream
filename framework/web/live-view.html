@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>直播小窗</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;height:100%;background:#000;overflow:hidden}
+    video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+    #hint{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#97a8ba;font:14px "Microsoft YaHei",sans-serif;text-align:center;line-height:1.9}
+    #hint a{color:#9fc3e8}#interaction{position:fixed;touch-action:none;outline:none;display:none}
+  </style>
+  <script type="importmap">{"imports":{"three":"/assets/three.module.js"}}</script>
+</head>
+<body>
+  <video id="v" autoplay playsinline muted></video>
+  <div id="hint"><div id="message">等待项目主窗口的直播画面…</div><div>请保持项目主窗口开启且不要最小化<br><a id="project-link" href="/">返回项目中心</a></div></div>
+  <div id="interaction" tabindex="0" aria-label="左键旋转，右键平移，滚轮缩放"></div>
+  <script type="module">
+    import {resolveProjectId, fetchProject} from './project-context.mjs';
+    import {SceneChannel} from './scene-channel.mjs';
+    const projectId = resolveProjectId();
+    const channel = new SceneChannel({projectId});
+    const video = document.getElementById('v'), hint = document.getElementById('hint');
+    const interaction = document.getElementById('interaction');
+    let pc = null, inputChannel = null, pendingIce = [], watchdog = 0, connected = false;
+    let cameraControls = null, cameraLoading = null, cameraAllowed = false, closed = false;
+    let generation = 0, previousFrames = 0, previousStatsAt = performance.now();
+
+    fetchProject(projectId).then(project => {
+      document.title = project.viewerTitle || '直播小窗 · ' + project.name;
+      const link = document.getElementById('project-link');
+      link.href = project.entry; link.textContent = '返回' + project.name;
+      cameraAllowed = project.output?.camera === true;
+      if (!cameraAllowed) { cameraControls?.dispose(); cameraControls = null; interaction.style.display = 'none'; }
+      else if (pc) channel.postMessage({type:'view-camera-request'});
+    }).catch(error => { document.getElementById('message').textContent = error.message; });
+
+    function sendControl(message) {
+      if (inputChannel?.readyState === 'open') inputChannel.send(JSON.stringify(message));
+      else channel.postMessage(message);
+    }
+
+    function layout() {
+      const aspect = (video.videoWidth || 1280) / (video.videoHeight || 720);
+      const width = Math.min(innerWidth, innerHeight * aspect), height = width / aspect;
+      Object.assign(interaction.style, {width:width+'px', height:height+'px', left:(innerWidth-width)/2+'px', top:(innerHeight-height)/2+'px'});
+      cameraControls?.resize(aspect);
+    }
+
+    // 2D/video projects need no Three.js, camera or perpetual control RAF.
+    async function syncCamera(message) {
+      if (!cameraAllowed || closed) return;
+      if (!cameraControls) {
+        if (!cameraLoading) cameraLoading = (async () => {
+          const [THREE, {OrbitControls}] = await Promise.all([import('/assets/three.module.js'), import('/assets/OrbitControls.js')]);
+          if (!cameraAllowed || closed) return;
+          const camera = new THREE.PerspectiveCamera(36, 16/9, .1, 500);
+          const controls = new OrbitControls(camera, interaction);
+          controls.enableDamping = true; controls.maxPolarAngle = Math.PI/2-.05; controls.minDistance = 3; controls.maxDistance = 180;
+          controls.listenToKeyEvents(interaction);
+          let syncing = false, interacting = false, frame = 0;
+          controls.addEventListener('start', () => interacting = true);
+          controls.addEventListener('end', () => interacting = false);
+          controls.addEventListener('change', () => {
+            if (!syncing) sendControl({type:'view-camera-change', p:camera.position.toArray(), t:controls.target.toArray()});
+          });
+          function tick() { frame = requestAnimationFrame(tick); controls.update(); }
+          cameraControls = {
+            sync(message) {
+              if (interacting) return;
+              syncing = true; const damping = controls.enableDamping; controls.enableDamping = false; controls.update();
+              camera.position.fromArray(message.p); controls.target.fromArray(message.t); camera.fov = message.fov || 36;
+              camera.updateProjectionMatrix(); controls.update(); controls.enableDamping = damping; syncing = false;
+            },
+            resize(aspect) { camera.aspect = aspect; camera.updateProjectionMatrix(); },
+            dispose() { cancelAnimationFrame(frame); controls.dispose(); },
+          };
+          // Initialize from the project before the first controls tick can send
+          // changes back; an origin-position camera would overwrite its view.
+          cameraControls.sync(message);
+          interaction.style.display = 'block'; layout(); tick();
+        })();
+        await cameraLoading;
+      }
+      cameraControls?.sync(message);
+    }
+
+    function showHint(on) { hint.style.display = on ? 'flex' : 'none'; }
+    function request() { if (!closed) channel.postMessage({type:'view-request'}); }
+    function armWatchdog() {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => { if (!video.srcObject || video.readyState < 2) reset(); }, 5000);
+    }
+    function teardown() {
+      generation++; inputChannel = null; pendingIce = [];
+      if (pc) { pc.onconnectionstatechange = null; pc.close(); }
+      pc = null; video.srcObject = null; connected = false;
+    }
+    function reset() { if (closed) return; teardown(); showHint(true); request(); armWatchdog(); }
+
+    channel.onmessage = async ({data:message = {}}) => {
+      if (message.type === 'view-size' && Number.isFinite(message.width) && Number.isFinite(message.height)) {
+        window.pywebview?.api?.resize_scene(message.width, message.height).catch(() => {});
+      } else if (message.type === 'view-camera' && Array.isArray(message.p) && Array.isArray(message.t)) {
+        syncCamera(message).catch(() => {});
+      } else if (message.type === 'view-offer' && message.sdp) {
+        const earlyIce = pendingIce; teardown(); pendingIce = earlyIce; const current = generation;
+        try {
+          const connection = pc = new RTCPeerConnection();
+          connection.ondatachannel = event => { inputChannel = event.channel; };
+          connection.ontrack = event => {
+            if (current !== generation) return;
+            video.srcObject = event.streams[0]; video.play().catch(() => {});
+            connected = true; previousFrames = 0; previousStatsAt = performance.now(); showHint(false); armWatchdog();
+          };
+          connection.onicecandidate = event => {
+            if (current !== generation || !event.candidate) return;
+            const {candidate, sdpMid, sdpMLineIndex} = event.candidate;
+            channel.postMessage({type:'view-ice', candidate:{candidate, sdpMid, sdpMLineIndex}});
+          };
+          connection.onconnectionstatechange = () => {
+            if (current === generation && ['failed','disconnected'].includes(connection.connectionState)) reset();
+          };
+          await connection.setRemoteDescription(message.sdp);
+          if (current !== generation) return;
+          for (const candidate of pendingIce.splice(0)) await connection.addIceCandidate(candidate);
+          const answer = await connection.createAnswer();
+          await connection.setLocalDescription(answer);
+          if (current !== generation) return;
+          channel.postMessage({type:'view-answer', sdp:{type:answer.type, sdp:answer.sdp}});
+          if (cameraAllowed) channel.postMessage({type:'view-camera-request'});
+        } catch { if (current === generation) reset(); }
+      } else if (message.type === 'view-ice' && message.candidate) {
+        if (!pc || !pc.remoteDescription) pendingIce.push(message.candidate);
+        else pc.addIceCandidate(message.candidate).catch(() => {});
+      }
+    };
+
+    video.addEventListener('playing', () => channel.postMessage({type:'view-ready'}));
+    interaction.addEventListener('pointerdown', () => interaction.focus());
+    window.addEventListener('resize', layout); video.addEventListener('resize', layout); layout();
+    const stats = setInterval(() => {
+      if (!connected) return;
+      const now = performance.now(), quality = video.getVideoPlaybackQuality();
+      const frames = quality.totalVideoFrames - quality.droppedVideoFrames;
+      const fps = Math.max(0, Math.round((frames-previousFrames)*1000/(now-previousStatsAt)));
+      previousFrames = frames; previousStatsAt = now;
+      channel.postMessage({type:'view-stats', fps, width:video.videoWidth, height:video.videoHeight});
+    }, 2000);
+    const heartbeat = setInterval(() => channel.postMessage({type:connected ? 'view-ping' : 'view-request'}), 3000);
+    request(); armWatchdog();
+    window.addEventListener('beforeunload', () => {
+      channel.postMessage({type:'view-bye'}); closed = true; clearTimeout(watchdog); clearInterval(stats); clearInterval(heartbeat);
+      teardown(); cameraControls?.dispose(); channel.close();
+    });
+  </script>
+</body>
+</html>
